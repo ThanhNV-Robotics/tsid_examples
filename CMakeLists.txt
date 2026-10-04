@@ -44,31 +44,6 @@ find_package(Boost REQUIRED COMPONENTS filesystem system)
 find_package(yaml-cpp QUIET)
 
 # -----------------------------------------------------------------------------
-# MuJoCo Simulate GUI Library (built using system packages + simulate sources)
-# -----------------------------------------------------------------------------
-set(SIMULATE_DIR "/opt/mujoco/simulate")
-set(SIMULATE_SOURCES
-  ${SIMULATE_DIR}/simulate.cc
-  ${SIMULATE_DIR}/glfw_adapter.cc
-  ${SIMULATE_DIR}/glfw_dispatch.cc
-  ${SIMULATE_DIR}/platform_ui_adapter.cc
-  ${SIMULATE_DIR}/lodepng.cpp
-)
-
-add_library(mujoco_simulate STATIC ${SIMULATE_SOURCES})
-target_include_directories(mujoco_simulate PUBLIC
-  ${SIMULATE_DIR}
-  /usr/local/include
-)
-target_link_libraries(mujoco_simulate PUBLIC
-  mujoco::mujoco
-  glfw
-  OpenGL::GL
-  Threads::Threads
-  ${CMAKE_DL_LIBS}
-)
-
-# -----------------------------------------------------------------------------
 # Core Library: bundles sim_interface + Pinocchio + MuJoCo + TSID + GLFW + Eigen
 # -----------------------------------------------------------------------------
 set(CORE_SOURCES
@@ -81,14 +56,12 @@ target_include_directories(core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/sim_interface
   ${CMAKE_CURRENT_SOURCE_DIR}/algorithms
   ${CMAKE_CURRENT_SOURCE_DIR}/utils
-  ${SIMULATE_DIR}
   /usr/local/include
 )
 target_compile_definitions(core PUBLIC
   COAL_DISABLE_HPP_FCL_WARNINGS
 )
 target_link_libraries(core PUBLIC
-  mujoco_simulate
   mujoco::mujoco
   glfw
   pinocchio::pinocchio
@@ -105,7 +78,9 @@ if(TARGET tsid::tsid)
   target_link_libraries(core PUBLIC tsid::tsid)
 endif()
 
-if(TARGET yaml-cpp)
+if(TARGET yaml-cpp::yaml-cpp)
+  target_link_libraries(core PUBLIC yaml-cpp::yaml-cpp)
+elseif(TARGET yaml-cpp)
   target_link_libraries(core PUBLIC yaml-cpp)
 endif()
 

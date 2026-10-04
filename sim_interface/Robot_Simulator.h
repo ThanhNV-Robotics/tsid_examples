@@ -17,9 +17,6 @@
 #include <unordered_map>
 #include <vector>
 
-// MuJoCo native simulate UI dependencies
-#include "glfw_adapter.h"
-#include "simulate.h"
 
 // Optional YAML support for joint configurations
 #if __has_include(<yaml-cpp/yaml.h>)
@@ -183,41 +180,6 @@ public:
     }
 };
 
-
-// ============================================================================
-// 3. SimUI - Multi-Threaded MuJoCo Native Simulate GUI
-// ============================================================================
-// Wraps MuJoCo's built-in Simulate GUI (mj::Simulate + GlfwAdapter) with
-// thread-safe locks between render and physics loops.
-// ============================================================================
-
-namespace mj = ::mujoco;
-
-class SimUI {
-public:
-    SimUI(mjModel* modelIn, mjData* dataIn, const std::string& windowTitle = "MuJoCo Simulate");
-
-    void LoadIntoUI();
-    void RenderLoop();
-    void Step();
-    void EnableTracking(int bodyId = 1);
-
-    bool IsRunning() const { return sim_->run != 0; }
-    bool ShouldExit() const { return sim_->exitrequest.load() != 0; }
-    void RequestExit() { sim_->exitrequest.store(1); }
-
-    mj::SimulateMutex& mutex() { return sim_->mtx; }
-
-private:
-    mjModel* mj_model_;
-    mjData* mj_data_;
-    std::string window_title_;
-
-    mjvCamera cam_;
-    mjvOption opt_;
-    mjvPerturb pert_;
-    std::unique_ptr<mj::Simulate> sim_;
-};
 
 
 // ============================================================================
