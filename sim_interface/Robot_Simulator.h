@@ -16,6 +16,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "data_type.h"
 
 
 // Optional YAML support for joint configurations
@@ -72,7 +73,7 @@ public:
     mjModel* mj_model{nullptr};
     mjData* mj_data{nullptr};
 
-    UIctr(mjModel* modelIn, mjData* dataIn);
+    UIctr(mjModel* modelIn = nullptr, mjData* dataIn = nullptr);
     virtual ~UIctr() = default;
 
     void iniGLFW();
@@ -94,7 +95,7 @@ public:
     // Apply current mouse perturbation force/torque
     void applyPerturbation();
 
-    void Close();
+    virtual void Close();
 
     void enableTracking();
     void disableTracking();
@@ -149,12 +150,68 @@ protected:
 // 2. Robot_Simulator - Unified Simulator Class
 // ============================================================================
 // Inherits all UIctr visualization/interaction capabilities and adds convenient
-// simulation control helpers.
+// simulation control, model loading, state querying, and actuation helpers.
 // ============================================================================
 
 class Robot_Simulator : public UIctr {
 public:
-    Robot_Simulator(mjModel* modelIn, mjData* dataIn) : UIctr(modelIn, dataIn) {}
+    // Default constructor
+    Robot_Simulator();
+
+    // Construct directly by loading MuJoCo scene XML
+    explicit Robot_Simulator(const std::string& xml_path);
+
+    // Backward-compatible constructor accepting pre-existing mjModel / mjData
+    Robot_Simulator(mjModel* modelIn, mjData* dataIn);
+
+    virtual ~Robot_Simulator();
+
+    // Load/reload model from XML file
+    bool loadModel(const std::string& xml_path);
+    bool isLoaded() const { return mj_model != nullptr && mj_data != nullptr; }
+
+    // Direct accessors for mjModel and mjData
+    mjModel* model() const { return mj_model; }
+    mjData* data() const { return mj_data; }
+    mjModel* m() const { return mj_model; }
+    mjData* d() const { return mj_data; }
+    mjModel* getModel() const { return mj_model; }
+    mjData* getData() const { return mj_data; }
+
+    // Model dimensions & timing
+    int nq() const { return mj_model ? mj_model->nq : 0; }
+    int nv() const { return mj_model ? mj_model->nv : 0; }
+    int nu() const { return mj_model ? mj_model->nu : 0; }
+    int na() const { return mj_model ? mj_model->nu : 0; }
+    double time() const { return mj_data ? mj_data->time : 0.0; }
+    double getTime() const { return time(); }
+
+    // Print model summary (joints, actuators, dimensions)
+    void printModelInfo() const;
+
+    // Apply initial joint configuration (handles floating-base index offset automatically)
+    void setInitConfiguration(const Eigen::VectorXd& q0);
+
+    // Read actuated joint states (qpos and qvel)
+    void getActuatedState(Eigen::VectorXd& q_out, Eigen::VectorXd& v_out, int na = -1) const;
+    Eigen::VectorXd getActuatedJointPos(int na = -1) const;
+    Eigen::VectorXd getActuatedJointVel(int na = -1) const;
+
+    // Read actuated joint states, base IMU and foot touch sensors (see common/data_type.h)
+    RobotSensor getRobotSensorValues() const;
+
+    // Apply control torques to actuators
+    void setControl(const Eigen::VectorXd& tau);
+    void setControl(const double* tau, int size);
+    void setActuatorForces(const Eigen::VectorXd& tau) { setControl(tau); }
+
+    // Step physics without updating the viewport (for fast inner control loops)
+    void stepPhysics();
+    void stepPhysics(const Eigen::VectorXd& tau);
+
+    // Step physics and render viewport (substeps iterations)
+    void step(int substeps = 1);
+    void step(const Eigen::VectorXd& tau, int substeps = 1);
 
     // Initialize GLFW and window in one call
     void init(const char* windowTitle = "Robot Simulator", bool saveVideo = false) {
@@ -162,22 +219,14 @@ public:
         createWindow(windowTitle, saveVideo);
     }
 
-    // Advance physics and update the display viewport
-    void step(int substeps = 1) {
-        for (int i = 0; i < substeps; ++i) {
-            applyPerturbation();
-            mj_step(mj_model, mj_data);
-        }
-        updateScene();
-    }
-
     // Reset simulation data
-    void reset() {
-        if (mj_model && mj_data) {
-            mj_resetData(mj_model, mj_data);
-            mj_forward(mj_model, mj_data);
-        }
-    }
+    void reset();
+
+    // Close window and release resources
+    void Close() override;
+
+private:
+    bool owns_model_{false};
 };
 
 

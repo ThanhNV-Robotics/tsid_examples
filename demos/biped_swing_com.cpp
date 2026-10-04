@@ -27,10 +27,7 @@
 #include "Robot_Simulator.h"
 #include "fstream"
 
-#include "cheat_state_estimator.h"
 #include "utils.h" // supporting functions
-#include "data_logger.h"
-#include "data_type.h"
 
 using namespace tsid;
 using namespace tsid::robots;
@@ -39,8 +36,26 @@ using namespace tsid::solvers;
 using namespace tsid::trajectories;
 using namespace std;
 using namespace Eigen;
-
+using namespace utils;
 using tsid::contacts::Contact6d;
+
+// Read the full floating-base state from MuJoCo in Pinocchio conventions.
+//  - MuJoCo qpos quaternion is (w,x,y,z); Pinocchio expects (x,y,z,w).
+//  - MuJoCo free-joint linear velocity is in the world frame, angular velocity
+//    in the body frame; Pinocchio's free-flyer velocity is fully local.
+static void readFloatingBaseState(const mjModel *m, const mjData *d,
+                                  VectorXd &q, VectorXd &v) {
+  Eigen::Quaterniond quat(d->qpos[3], d->qpos[4], d->qpos[5], d->qpos[6]);
+  quat.normalize();
+  q.head<3>() = Eigen::Map<const Vector3d>(d->qpos);
+  q.segment<4>(3) = quat.coeffs(); // Eigen coeffs() order is (x,y,z,w)
+  q.tail(m->nq - 7) = Eigen::Map<const VectorXd>(d->qpos + 7, m->nq - 7);
+
+  const Vector3d v_lin_world = Eigen::Map<const Vector3d>(d->qvel);
+  v.head<3>() = quat.toRotationMatrix().transpose() * v_lin_world;
+  v.segment<3>(3) = Eigen::Map<const Vector3d>(d->qvel + 3);
+  v.tail(m->nv - 6) = Eigen::Map<const VectorXd>(d->qvel + 6, m->nv - 6);
+}
 
 int main(int argc, char **argv) {
   const string XML_PATH = "models/mjcf/scene_floatingbase_12dof_v2.xml";
@@ -128,8 +143,7 @@ int main(int argc, char **argv) {
 
   // TSID Formulation init
   InverseDynamicsFormulationAccForce tsid("tsid-biped", robot);
-  Cheat_StateEstimator state_estimator(sim.model(), sim.data());
-  utils::robotStateToPinocchio(state_estimator.estimate(sim.getRobotSensorValues()), q, v);
+  readFloatingBaseState(sim.model(), sim.data(), q, v);
   tsid.computeProblemData(0.0, q, v);
   const pinocchio::Data &data = tsid.data();
 
@@ -221,22 +235,30 @@ int main(int argc, char **argv) {
   const double T_stand = 3.0; // seconds
 
   // Setup CSV log
-  DataLogger datalog("record/biped_standing_joint_control.csv");
+  std::filesystem::create_directories("record");
+  std::ofstream datalog("record/biped_standing_joint_control.csv");
   vector<string> joint_names = utils::getJointNames(sim.model());
   // MuJoCo joint list is [floating_base_joint, 12 leg joints]
-  const vector<string> leg_joint_names(joint_names.end() - robot.na(), joint_names.end());
-  datalog.addItem("time", 1);
-  datalog.addItem("pos_cmd", leg_joint_names);
-  datalog.addItem("pos_measured", leg_joint_names);
-  datalog.addItem("tau_cmd", leg_joint_names);
-  datalog.finishItemAdding();
+  const int jnt_offset = std::max<int>(0, (int)joint_names.size() - robot.na());
+  datalog << "time";
+  for (int i = 0; i < robot.na(); ++i) {
+    string name = (jnt_offset + i < (int)joint_names.size()) ? joint_names[jnt_offset + i] : ("joint_" + to_string(i));
+    datalog << "," << name << "_pos_cmd";
+  }
+  for (int i = 0; i < robot.na(); ++i) {
+    string name = (jnt_offset + i < (int)joint_names.size()) ? joint_names[jnt_offset + i] : ("joint_" + to_string(i));
+    datalog << "," << name << "_pos_measured";
+  }
+  for (int i = 0; i < robot.na(); ++i) {
+    string name = (jnt_offset + i < (int)joint_names.size()) ? joint_names[jnt_offset + i] : ("joint_" + to_string(i));
+    datalog << "," << name << "_tau_cmd";
+  }
+  datalog << "\n";
 
   // ------------------------------------------------------------------------
   // 6. Simulation & Control Loop
   // ------------------------------------------------------------------------
   const double simulation_time = 20.0;
-  RobotSensor robot_sensors;
-
   while (!sim.shouldClose() && sim.time() < simulation_time) {
     double simstart = sim.time();
 
@@ -244,15 +266,24 @@ int main(int argc, char **argv) {
     while (sim.time() - simstart < 1.0 / 60.0 && sim.runSim) {
       double t = sim.time();
 
-      // Read robot sensors including joint state and imu
-      robot_sensors = sim.getRobotSensorValues();
-      
-      // pass sensor values to state estimator
-      const RobotState state = state_estimator.estimate(robot_sensors);
-      utils::robotStateToPinocchio(state, q, v);
+      // 6.1 Read current actuated joint state from MuJoCo via Robot_Simulator
+      readFloatingBaseState(sim.model(), sim.data(), q, v);
 
-      // Compute smooth 5th-order polynomial trajectory to qa_init over T_stand
-      utils::quinticTrajectory(q_start, qa_init, t, T_stand, q_ref, v_ref, dv_ref);
+      // 6.2 Compute smooth 5th-order polynomial trajectory to qa_init over T_stand
+      if (t < T_stand) {
+        double tau_norm = t / T_stand;
+        double s = 10.0 * std::pow(tau_norm, 3) - 15.0 * std::pow(tau_norm, 4) + 6.0 * std::pow(tau_norm, 5);
+        double ds = (30.0 * std::pow(tau_norm, 2) - 60.0 * std::pow(tau_norm, 3) + 30.0 * std::pow(tau_norm, 4)) / T_stand;
+        double dds = (60.0 * tau_norm - 180.0 * std::pow(tau_norm, 2) + 120.0 * std::pow(tau_norm, 3)) / (T_stand * T_stand);
+
+        q_ref = q_start + s * (qa_init - q_start);
+        v_ref = ds * (qa_init - q_start);
+        dv_ref = dds * (qa_init - q_start);
+      } else {
+        q_ref = qa_init;
+        v_ref.setZero();
+        dv_ref.setZero();
+      }
 
       sample.setValue(q_ref);
       sample.setDerivative(v_ref);
@@ -272,12 +303,11 @@ int main(int argc, char **argv) {
       sim.setControl(tau);
 
       // 6.5 Log state
-      datalog.startNewLine();
-      datalog.recItemData("time", t);
-      datalog.recItemData("pos_cmd", q_ref);
-      datalog.recItemData("pos_measured", q.tail(robot.na()));
-      datalog.recItemData("tau_cmd", tau);
-      datalog.finishLine();
+      datalog << t;
+      for (int i = 0; i < robot.na(); ++i) datalog << "," << q_ref(i);
+      for (int i = 0; i < robot.na(); ++i) datalog << "," << q(7 + i);
+      for (int i = 0; i < robot.na(); ++i) datalog << "," << tau(i);
+      datalog << "\n";
 
       // 6.6 Apply interactive user perturbations and step physics
       sim.stepPhysics();
@@ -289,7 +319,7 @@ int main(int argc, char **argv) {
 
   // Flush and close log file
   datalog.close();
-  std::cout << "Data saved to " << datalog.path() << " (" << datalog.numLines() << " lines)" << std::endl;
+  std::cout << "Data saved to record/biped_standing_joint_control.csv" << std::endl;
 
   // Cleanup
   sim.Close();

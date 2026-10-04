@@ -306,7 +306,7 @@ void UIctr::Scroll(double xoffset, double yoffset) {
 }
 
 void UIctr::applyPerturbation() {
-    if (!pert.select) return;
+    if (!mj_model || !mj_data || !pert.select) return;
 
     if (runSim) {
         mju_zero(mj_data->xfrc_applied, 6 * mj_model->nbody);
@@ -318,14 +318,27 @@ void UIctr::applyPerturbation() {
 }
 
 void UIctr::Close() {
-    if (mj_data) mj_deleteData(mj_data);
-    if (mj_model) mj_deleteModel(mj_model);
+    if (mj_data) {
+        mj_deleteData(mj_data);
+        mj_data = nullptr;
+    }
+    if (mj_model) {
+        mj_deleteModel(mj_model);
+        mj_model = nullptr;
+    }
     mjr_freeContext(&con);
     mjv_freeScene(&scn);
     if (save_video && file) {
         fclose(file);
+        file = nullptr;
         free(image_rgb_);
         free(image_depth_);
+        image_rgb_ = nullptr;
+        image_depth_ = nullptr;
+    }
+    if (window) {
+        glfwDestroyWindow(window);
+        window = nullptr;
     }
     glfwTerminate();
 }
@@ -386,6 +399,230 @@ void UIctr::addLine(const Eigen::Vector3d& from, const Eigen::Vector3d& to, cons
     custom_arrows_.push_back(arr);
 }
 
+
+// ============================================================================
+// 2. Robot_Simulator Implementation
+// ============================================================================
+
+Robot_Simulator::Robot_Simulator()
+    : UIctr(nullptr, nullptr), owns_model_(false) {}
+
+Robot_Simulator::Robot_Simulator(const std::string& xml_path)
+    : UIctr(nullptr, nullptr), owns_model_(true) {
+    loadModel(xml_path);
+}
+
+Robot_Simulator::Robot_Simulator(mjModel* modelIn, mjData* dataIn)
+    : UIctr(modelIn, dataIn), owns_model_(false) {}
+
+Robot_Simulator::~Robot_Simulator() {
+    if (window) {
+        Close();
+    } else if (owns_model_) {
+        if (mj_data) {
+            mj_deleteData(mj_data);
+            mj_data = nullptr;
+        }
+        if (mj_model) {
+            mj_deleteModel(mj_model);
+            mj_model = nullptr;
+        }
+    }
+}
+
+bool Robot_Simulator::loadModel(const std::string& xml_path) {
+    if (owns_model_) {
+        if (mj_data) {
+            mj_deleteData(mj_data);
+            mj_data = nullptr;
+        }
+        if (mj_model) {
+            mj_deleteModel(mj_model);
+            mj_model = nullptr;
+        }
+    }
+    char loadError[1024] = "";
+    mj_model = mj_loadXML(xml_path.c_str(), nullptr, loadError, sizeof(loadError));
+    if (!mj_model) {
+        std::fprintf(stderr, "[Robot_Simulator] Failed to load MuJoCo scene '%s': %s\n",
+                     xml_path.c_str(), loadError);
+        mj_data = nullptr;
+        owns_model_ = false;
+        return false;
+    }
+    mj_data = mj_makeData(mj_model);
+    owns_model_ = true;
+    return true;
+}
+
+void Robot_Simulator::printModelInfo() const {
+    if (!mj_model) {
+        std::cout << "[Robot_Simulator] Model is not loaded.\n";
+        return;
+    }
+    std::cout << "================ MuJoCo Model Info ================\n";
+    std::cout << "Model nq (generalized pos): " << mj_model->nq << "\n";
+    std::cout << "Model nv (generalized vel): " << mj_model->nv << "\n";
+    std::cout << "Model nu (actuators):       " << mj_model->nu << "\n";
+    std::cout << "Model nbody (bodies):       " << mj_model->nbody << "\n";
+    std::cout << "Model njnt (joints):        " << mj_model->njnt << "\n";
+    for (int i = 0; i < mj_model->njnt; ++i) {
+        const char* name = mj_id2name(mj_model, mjOBJ_JOINT, i);
+        std::cout << "  Joint " << i << ": " << (name ? name : "unnamed") << "\n";
+    }
+    for (int i = 0; i < mj_model->nu; ++i) {
+        const char* name = mj_id2name(mj_model, mjOBJ_ACTUATOR, i);
+        std::cout << "  Actuator " << i << ": " << (name ? name : "unnamed") << "\n";
+    }
+    std::cout << "===================================================\n";
+}
+
+void Robot_Simulator::setInitConfiguration(const Eigen::VectorXd& q0) {
+    if (!mj_model || !mj_data) return;
+    if (q0.size() == mj_model->nq) {
+        for (int i = 0; i < mj_model->nq; ++i) {
+            mj_data->qpos[i] = q0(i);
+        }
+    } else if (q0.size() <= mj_model->nq) {
+        const int offset = mj_model->nq - q0.size();
+        for (int i = 0; i < q0.size(); ++i) {
+            mj_data->qpos[offset + i] = q0(i);
+        }
+    } else {
+        std::cerr << "[Robot_Simulator] Dimension mismatch in setInitConfiguration! q0 size: "
+                  << q0.size() << ", m->nq: " << mj_model->nq << std::endl;
+        return;
+    }
+    mj_forward(mj_model, mj_data);
+}
+
+void Robot_Simulator::getActuatedState(Eigen::VectorXd& q_out, Eigen::VectorXd& v_out, int na) const {
+    if (!mj_model || !mj_data) return;
+    int num_act = (na > 0) ? na : static_cast<int>(mj_model->nu);
+    if (q_out.size() != num_act) q_out.resize(num_act);
+    if (v_out.size() != num_act) v_out.resize(num_act);
+    const int qpos_offset = (mj_model->nq >= num_act) ? static_cast<int>(mj_model->nq - num_act) : 0;
+    const int qvel_offset = (mj_model->nv >= num_act) ? static_cast<int>(mj_model->nv - num_act) : 0;
+    for (int i = 0; i < num_act; ++i) {
+        q_out(i) = mj_data->qpos[qpos_offset + i];
+        v_out(i) = mj_data->qvel[qvel_offset + i];
+    }
+}
+
+Eigen::VectorXd Robot_Simulator::getActuatedJointPos(int na) const {
+    if (!mj_model || !mj_data) return Eigen::VectorXd();
+    int num_act = (na > 0) ? na : static_cast<int>(mj_model->nu);
+    Eigen::VectorXd q_out(num_act);
+    const int qpos_offset = (mj_model->nq >= num_act) ? static_cast<int>(mj_model->nq - num_act) : 0;
+    for (int i = 0; i < num_act; ++i) {
+        q_out(i) = mj_data->qpos[qpos_offset + i];
+    }
+    return q_out;
+}
+
+Eigen::VectorXd Robot_Simulator::getActuatedJointVel(int na) const {
+    if (!mj_model || !mj_data) return Eigen::VectorXd();
+    int num_act = (na > 0) ? na : static_cast<int>(mj_model->nu);
+    Eigen::VectorXd v_out(num_act);
+    const int qvel_offset = (mj_model->nv >= num_act) ? static_cast<int>(mj_model->nv - num_act) : 0;
+    for (int i = 0; i < num_act; ++i) {
+        v_out(i) = mj_data->qvel[qvel_offset + i];
+    }
+    return v_out;
+}
+
+RobotSensor Robot_Simulator::getRobotSensorValues() const {
+    if (!mj_model || !mj_data) return RobotSensor();
+
+    // Actuated joints, mapped through each actuator's joint transmission
+    const int nu = mj_model->nu;
+    RobotSensor sensor(nu);
+    ActuatorState& act = sensor.actuator_state;
+    for (int i = 0; i < nu; ++i) {
+        if (mj_model->actuator_trntype[i] != mjTRN_JOINT) continue;
+        const int jnt = mj_model->actuator_trnid[2 * i];
+        act.qj(i) = mj_data->qpos[mj_model->jnt_qposadr[jnt]];
+        act.dqj(i) = mj_data->qvel[mj_model->jnt_dofadr[jnt]];
+        // Torque actually applied at the joint (after ctrlrange clamping)
+        act.torquej(i) = mj_data->actuator_force[i] * mj_model->actuator_gear[6 * i];
+    }
+
+    // Returns the sensordata address of a named sensor, or -1 if absent
+    auto sensorAdr = [this](const char* name) {
+        const int id = mj_name2id(mj_model, mjOBJ_SENSOR, name);
+        return id >= 0 ? mj_model->sensor_adr[id] : -1;
+    };
+    const mjtNum* sd = mj_data->sensordata;
+
+    // Base IMU (site "imu"); MuJoCo framequat is [w,x,y,z]
+    IMUSensor& imu = sensor.imu_sensor;
+    const int quatAdr = sensorAdr("baselink-quat");
+    if (quatAdr >= 0) {
+        imu.imu_quat_ = Quat(sd[quatAdr], sd[quatAdr + 1], sd[quatAdr + 2], sd[quatAdr + 3]).normalized();
+    }
+    const int gyroAdr = sensorAdr("baselink-gyro");
+    if (gyroAdr >= 0) imu.imu_gyro_L = Eigen::Map<const Vector3d>(sd + gyroAdr);
+    const int accAdr = sensorAdr("baselink-baseAcc");
+    if (accAdr >= 0) imu.imu_accel_L = Eigen::Map<const Vector3d>(sd + accAdr);
+
+    // Foot touch sensors [N]
+    const int lfAdr = sensorAdr("lf-touch");
+    sensor.left_touch_sensor = lfAdr >= 0 ? sd[lfAdr] : 0.0;
+    const int rfAdr = sensorAdr("rf-touch");
+    sensor.right_touch_sensor = rfAdr >= 0 ? sd[rfAdr] : 0.0;
+
+    return sensor;
+}
+
+void Robot_Simulator::setControl(const Eigen::VectorXd& tau) {
+    if (!mj_model || !mj_data) return;
+    const int n = std::min<int>(static_cast<int>(tau.size()), mj_model->nu);
+    for (int i = 0; i < n; ++i) {
+        mj_data->ctrl[i] = tau(i);
+    }
+}
+
+void Robot_Simulator::setControl(const double* tau, int size) {
+    if (!mj_model || !mj_data || !tau) return;
+    const int n = std::min<int>(size, mj_model->nu);
+    for (int i = 0; i < n; ++i) {
+        mj_data->ctrl[i] = tau[i];
+    }
+}
+
+void Robot_Simulator::stepPhysics() {
+    if (!mj_model || !mj_data) return;
+    applyPerturbation();
+    mj_step(mj_model, mj_data);
+}
+
+void Robot_Simulator::stepPhysics(const Eigen::VectorXd& tau) {
+    setControl(tau);
+    stepPhysics();
+}
+
+void Robot_Simulator::step(int substeps) {
+    for (int i = 0; i < substeps; ++i) {
+        stepPhysics();
+    }
+    updateScene();
+}
+
+void Robot_Simulator::step(const Eigen::VectorXd& tau, int substeps) {
+    setControl(tau);
+    step(substeps);
+}
+
+void Robot_Simulator::reset() {
+    if (mj_model && mj_data) {
+        mj_resetData(mj_model, mj_data);
+        mj_forward(mj_model, mj_data);
+    }
+}
+
+void Robot_Simulator::Close() {
+    UIctr::Close();
+}
 
 
 // ============================================================================
