@@ -1,0 +1,172 @@
+<?xml version="1.0" ?>
+<robot name="biped 12-dof robot - right leg" version="1.0" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+<mujoco>
+<compiler meshdir="meshes" discardvisual="false" fusestatic="false" />
+</mujoco>
+
+  <!-- [CAUTION] Floating base joint commented out - centroidal MPC adds it internally -->
+  <!--
+  <link name="world"/>
+  <joint name="floating_base" type="floating">
+    <origin xyz="0.0 0.0 0.86" rpy="0.0 0.0 0.0"/>
+    <parent link="world"/>
+    <child link="link0_torso"/>
+  </joint>
+  -->
+
+  <link name="link0_torso">
+    <inertial>
+      <origin xyz="2.2000000171829015e-05 1.1000000085914508e-05 -0.009359000250697136" rpy="0.0 0.0 0.0"/>
+      <mass value="5.7210001945495605"/>
+      <inertia ixx="0.13379999995231628" ixy="-7.542255389125785e-06" ixz="8.597635314799845e-06" iyy="0.10189999639987946" iyz="8.566241376684047e-06" izz="0.062780000269413"/>
+    </inertial>
+    <visual name="Geom_1">
+      <origin xyz="7.796032878104597e-05 0.0003180369094479829 0.09691701829433441" rpy="-0.0006628095870837569 -0.0008575216052122414 0.0019874856807291508"/>
+      <geometry>
+        <mesh filename="file://biped_robot_12dof/meshes/stl/link0_torso.stl" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_1_material">
+        <color rgba="0.5 0.5 0.5 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="right_hip_pitch_joint" type="revolute">
+    <origin xyz="0.0 -0.08976099640130997 -0.08143699914216995" rpy="0.26179948449134827 0.0 0.0"/>
+    <axis xyz="0.0 1.0 0.0"/>
+    <parent link="link0_torso"/>
+    <child link="right_hip_pitch_link"/>
+    <limit effort="1000.0" lower="-1.0471975803375244" upper="1.0471975803375244" velocity="1000.0"/>
+  </joint>
+  <link name="right_hip_pitch_link">
+    <inertial>
+      <origin xyz="0.005578999873250723 -0.059769999235868454 0.0005810000002384186" rpy="0.0 0.0 0.0"/>
+      <mass value="1.7640000581741333"/>
+      <inertia ixx="0.0032450000289827585" ixy="0.00014780001947656274" ixz="5.415223768068245e-06" iyy="0.0022849999368190765" iyz="-1.7387062598572811e-06" izz="0.0034169999416917562"/>
+    </inertial>
+    <visual name="Geom_8">
+      <origin xyz="0.000859422842040658 -0.057270146906375885 0.0005347120459191501" rpy="0.1750001609325409 -1.5643666982650757 1.4342265129089355"/>
+      <geometry>
+        <mesh filename="file://biped_robot_12dof/meshes/stl/right_hip_pitch_link.stl" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_8_material">
+        <color rgba="0.5 0.5 0.5 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="right_hip_roll_joint" type="revolute">
+    <origin xyz="0.0 -0.07500000298023224 0.0" rpy="-0.2617994248867035 0.0 0.0"/>
+    <axis xyz="1.0 0.0 0.0"/>
+    <parent link="right_hip_pitch_link"/>
+    <child link="right_hip_roll_link"/>
+    <limit effort="1000.0" lower="-1.0471975803375244" upper="0.6108652353286743" velocity="1000.0"/>
+  </joint>
+  <link name="right_hip_roll_link">
+    <inertial>
+      <origin xyz="1.5999999959603883e-05 -0.00013600000238511711 -0.07324100285768509" rpy="0.0 0.0 0.0"/>
+      <mass value="1.2918000221252441"/>
+      <inertia ixx="0.0023590000346302986" ixy="-9.270930831917212e-07" ixz="-3.4294696433789795e-06" iyy="0.0031530000269412994" iyz="-9.270607961298083e-07" izz="0.001975000137463212"/>
+    </inertial>
+    <visual name="Geom_9">
+      <origin xyz="0.00023425206018146127 -6.413497430912685e-06 -0.06885075569152832" rpy="0.04643318057060242 0.0006989742978475988 1.5703041553497314"/>
+      <geometry>
+        <mesh filename="file://biped_robot_12dof/meshes/stl/right_hip_roll_link.stl" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_9_material">
+        <color rgba="0.5 0.5 0.5 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="right_hip_yaw_joint" type="revolute">
+    <origin xyz="0.0 0.0 -0.12049999833106995" rpy="0.0 0.0 0.0"/>
+    <axis xyz="0.0 0.0 1.0"/>
+    <parent link="right_hip_roll_link"/>
+    <child link="right_hip_yaw_link"/>
+    <limit effort="1000.0" lower="-0.7853981852531433" upper="0.7853981852531433" velocity="1000.0"/>
+  </joint>
+  <link name="right_hip_yaw_link">
+    <inertial>
+      <origin xyz="-2.9000000722589903e-05 0.013844000175595284 -0.16547299921512604" rpy="0.0 0.0 0.0"/>
+      <mass value="1.9830000400543213"/>
+      <inertia ixx="0.011639999225735664" ixy="2.389976998529164e-06" ixz="-1.0329849828849547e-06" iyy="0.012079998850822449" iyz="0.0009596053278073668" izz="0.0020090010948479176"/>
+    </inertial>
+    <visual name="Geom_10">
+      <origin xyz="-0.00012431660434231162 0.00806157011538744 -0.13632270693778992" rpy="0.006456583272665739 -0.06762170791625977 1.4874911308288574"/>
+      <geometry>
+        <mesh filename="file://biped_robot_12dof/meshes/stl/right_hip_yaw_link.stl" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_10_material">
+        <color rgba="0.5 0.5 0.5 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="right_knee_pitch_joint" type="revolute">
+    <origin xyz="0.0 0.0 -0.20350000262260437" rpy="0.0 0.0 0.0"/>
+    <axis xyz="0.0 1.0 0.0"/>
+    <parent link="right_hip_yaw_link"/>
+    <child link="right_knee_link"/>
+    <limit effort="1000.0" lower="-0.1745329201221466" upper="2.094395160675049" velocity="1000.0"/>
+  </joint>
+  <link name="right_knee_link">
+    <inertial>
+      <origin xyz="0.009336000308394432 -0.0037609999999403954 -0.1630380004644394" rpy="0.0 0.0 0.0"/>
+      <mass value="1.878999948501587"/>
+      <inertia ixx="0.016529999673366547" ixy="-3.5348526580492035e-05" ixz="0.0007737999549135566" iyy="0.016330000013113022" iyz="0.0008795000030659139" izz="0.0014799999771639705"/>
+    </inertial>
+    <visual name="Geom_11">
+      <origin xyz="0.006512644235044718 -0.00538110313937068 -0.16000472009181976" rpy="0.06655730307102203 -0.025580722838640213 -0.08777308464050293"/>
+      <geometry>
+        <mesh filename="file://biped_robot_12dof/meshes/stl/right_knee_link.stl" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_11_material">
+        <color rgba="0.5 0.5 0.5 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="right_ankle_roll_joint" type="revolute">
+    <origin xyz="0.0 0.0 -0.33500000834465027" rpy="0.0 0.0 0.0"/>
+    <axis xyz="1.0 0.0 0.0"/>
+    <parent link="right_knee_link"/>
+    <child link="right_ankle_roll_link"/>
+    <limit effort="1000.0" lower="-0.2617993950843811" upper="0.2617993950843811" velocity="1000.0"/>
+  </joint>
+  <link name="right_ankle_roll_link">
+    <inertial>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+      <mass value="0.0403130017220974"/>
+      <inertia ixx="7.009000000834931e-06" ixy="0.0" ixz="0.0" iyy="3.4981039789272472e-06" iyz="0.0" izz="5.125014013174223e-06"/>
+    </inertial>
+    <visual name="Geom_12">
+      <origin xyz="2.6743753096525325e-06 7.25847314697603e-07 5.631850399367977e-07" rpy="3.1415927410125732 -1.5707963705062866 0.0"/>
+      <geometry>
+        <mesh filename="file://biped_robot_12dof/meshes/stl/right_ankle_roll_link.stl" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_12_material">
+        <color rgba="0.5 0.5 0.5 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="right_ankle_pitch_joint" type="revolute">
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+    <axis xyz="0.0 1.0 0.0"/>
+    <parent link="right_ankle_roll_link"/>
+    <child link="right_ankle_pitch_link"/>
+    <limit effort="1000.0" lower="-0.5235987901687622" upper="0.5235987901687622" velocity="1000.0"/>
+  </joint>
+  <link name="right_ankle_pitch_link">
+    <inertial>
+      <origin xyz="0.029106000438332558 0.0 -0.030482999980449677" rpy="0.0 0.0 0.0"/>
+      <mass value="0.3432289958000183"/>
+      <inertia ixx="0.00015459998394362628" ixy="-9.970007930348856e-09" ixz="5.023086123401299e-05" iyy="0.0008769999840296805" iyz="4.03599820231193e-08" izz="0.000943399965763092"/>
+    </inertial>
+    <visual name="Geom_13">
+      <origin xyz="0.025210782885551453 4.675240234064404e-06 -0.025255193933844566" rpy="3.1390786170959473 -1.4636704921722412 0.0023017171770334244"/>
+      <geometry>
+        <mesh filename="file://biped_robot_12dof/meshes/stl/right_ankle_pitch_link.stl" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_13_material">
+        <color rgba="0.5 0.5 0.5 1.0"/>
+      </material>
+    </visual>
+  </link>
+</robot>

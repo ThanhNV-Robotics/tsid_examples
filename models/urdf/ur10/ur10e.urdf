@@ -1,0 +1,334 @@
+<?xml version="1.0" ?>
+<robot name="ur10e" version="1.0">
+  <link name="world"/>
+  <joint name="base_joint" type="floating">
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 3.1415927410125732"/>
+    <parent link="world"/>
+    <child link="base"/>
+  </joint>
+  <link name="base">
+    <inertial>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+      <mass value="4.0"/>
+      <inertia ixx="0.006106331013143063" ixy="0.0" ixz="0.0" iyy="0.006106331013143063" iyz="0.0" izz="0.011250000447034836"/>
+    </inertial>
+    <visual name="Geom_0">
+      <origin xyz="-3.1253475754056126e-06 -4.996286975256226e-07 0.09375101327896118" rpy="1.2648649215698242 -1.5707963705062866 0.0"/>
+      <geometry>
+        <mesh filename="file://ur10e/meshes/obj/base_0.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_0_material">
+        <color rgba="0.033 0.033 0.033 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_1">
+      <origin xyz="-1.3620461913887993e-07 2.609895318528288e-06 0.03139932453632355" rpy="-2.5391845703125 -1.5707563161849976 -1.6321780681610107"/>
+      <geometry>
+        <mesh filename="file://ur10e/meshes/obj/base_1.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_1_material">
+        <color rgba="0.278 0.278 0.278 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="shoulder_pan_joint" type="revolute">
+    <origin xyz="0.0 0.0 0.1809999942779541" rpy="0.0 0.0 0.0"/>
+    <axis xyz="0.0 0.0 1.0"/>
+    <parent link="base"/>
+    <child link="shoulder_link"/>
+    <limit effort="1000.0" lower="-6.2831902503967285" upper="6.2831902503967285" velocity="1000.0"/>
+  </joint>
+  <link name="shoulder_link">
+    <inertial>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+      <mass value="7.7779998779296875"/>
+      <inertia ixx="0.03147429972887039" ixy="0.0" ixz="0.0" iyy="0.03147429972887039" iyz="0.0" izz="0.021875599399209023"/>
+    </inertial>
+    <collision name="Geom_5">
+      <origin xyz="0.0 0.0 -0.05000000074505806" rpy="0.0 0.0 0.0"/>
+      <geometry>
+        <cylinder radius="0.07800000160932541" length="0.1599999964237213"/>
+      </geometry>
+    </collision>
+    <visual name="Geom_2">
+      <origin xyz="3.244891922804527e-05 -0.01076980959624052 0.07042538374662399" rpy="-1.580025553703308 -1.3171114921569824 -1.569447636604309"/>
+      <geometry>
+        <mesh filename="file://ur10e/meshes/obj/shoulder_0.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_2_material">
+        <color rgba="0.49 0.678 0.8 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_3">
+      <origin xyz="-1.67322116340074e-06 0.08903753757476807 -0.0003029611543752253" rpy="-0.535102128982544 -4.790313596458873e-06 1.5707991123199463"/>
+      <geometry>
+        <mesh filename="file://ur10e/meshes/obj/shoulder_1.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_3_material">
+        <color rgba="0.033 0.033 0.033 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_4">
+      <origin xyz="-9.345739272248466e-06 0.0016752078663557768 -0.01781303621828556" rpy="-0.016567790880799294 0.6246088743209839 1.5716931819915771"/>
+      <geometry>
+        <mesh filename="file://ur10e/meshes/obj/shoulder_2.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_4_material">
+        <color rgba="0.278 0.278 0.278 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="shoulder_lift_joint" type="revolute">
+    <origin xyz="0.0 0.17599999904632568 0.0" rpy="-0.0 1.5707963705062866 0.0"/>
+    <axis xyz="0.0 1.0 0.0"/>
+    <parent link="shoulder_link"/>
+    <child link="upper_arm_link"/>
+    <limit effort="1000.0" lower="-6.2831902503967285" upper="6.2831902503967285" velocity="1000.0"/>
+  </joint>
+  <link name="upper_arm_link">
+    <inertial>
+      <origin xyz="0.0 0.0 0.30649998784065247" rpy="0.0 0.0 0.0"/>
+      <mass value="12.930000305175781"/>
+      <inertia ixx="0.42307400703430176" ixy="0.0" ixz="0.0" iyy="0.42307400703430176" iyz="0.0" izz="0.03636559844017029"/>
+    </inertial>
+    <collision name="Geom_10">
+      <origin xyz="0.0 -0.05000000074505806 0.0" rpy="1.5707963705062866 0.0 0.0"/>
+      <geometry>
+        <cylinder radius="0.07800000160932541" length="0.1599999964237213"/>
+      </geometry>
+    </collision>
+    <collision name="Geom_11">
+      <origin xyz="0.0 0.0 0.30000001192092896" rpy="0.0 0.0 0.0"/>
+      <geometry>
+        <cylinder radius="0.05999999865889549" length="0.6000000238418579"/>
+      </geometry>
+    </collision>
+    <visual name="Geom_6">
+      <origin xyz="-5.568246706388891e-06 -0.025972411036491394 0.41198819875717163" rpy="-0.003440482309088111 -0.12374050915241241 1.598328948020935"/>
+      <geometry>
+        <mesh filename="file://ur10e/meshes/obj/upperarm_0.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_6_material">
+        <color rgba="0.033 0.033 0.033 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_7">
+      <origin xyz="0.00030726782279089093 -0.021370388567447662 0.2412535846233368" rpy="-0.0007508491980843246 0.001923014409840107 1.6276053190231323"/>
+      <geometry>
+        <mesh filename="file://ur10e/meshes/obj/upperarm_1.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_7_material">
+        <color rgba="0.278 0.278 0.278 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_8">
+      <origin xyz="-0.0006588933174498379 0.05708777904510498 0.27944114804267883" rpy="0.0014719923492521048 -0.031052537262439728 1.5820785760879517"/>
+      <geometry>
+        <mesh filename="file://ur10e/meshes/obj/upperarm_2.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_8_material">
+        <color rgba="0.49 0.678 0.8 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_9">
+      <origin xyz="7.534589531132951e-05 -1.8876613467000425e-05 0.3043956160545349" rpy="-0.0003793523646891117 -0.0007784693734720349 0.8455788493156433"/>
+      <geometry>
+        <mesh filename="file://ur10e/meshes/obj/upperarm_3.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_9_material">
+        <color rgba="0.82 0.82 0.82 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="elbow_joint" type="revolute">
+    <origin xyz="2.7755575615628914e-17 -0.13699999451637268 0.6129999756813049" rpy="0.0 0.0 0.0"/>
+    <axis xyz="0.0 1.0 0.0"/>
+    <parent link="upper_arm_link"/>
+    <child link="forearm_link"/>
+    <limit effort="1000.0" lower="-3.1414999961853027" upper="3.1414999961853027" velocity="1000.0"/>
+  </joint>
+  <link name="forearm_link">
+    <inertial>
+      <origin xyz="0.0 0.0 0.2854999899864197" rpy="0.0 0.0 0.0"/>
+      <mass value="3.869999885559082"/>
+      <inertia ixx="0.11059000343084335" ixy="0.0" ixz="0.0" iyy="0.11059000343084335" iyz="0.0" izz="0.010884400457143784"/>
+    </inertial>
+    <collision name="Geom_16">
+      <origin xyz="0.0 0.07999999821186066 0.0" rpy="1.5707963705062866 0.0 0.0"/>
+      <geometry>
+        <cylinder radius="0.057999998331069946" length="0.12999999523162842"/>
+      </geometry>
+    </collision>
+    <collision name="Geom_17">
+      <origin xyz="0.0 0.0 0.28999999165534973" rpy="0.0 0.0 0.0"/>
+      <geometry>
+        <cylinder radius="0.0430000014603138" length="0.5600000023841858"/>
+      </geometry>
+    </collision>
+    <visual name="Geom_12">
+      <origin xyz="-1.393573825225758e-06 -0.040280960500240326 0.5763769745826721" rpy="-0.02835693396627903 0.3014141917228699 1.5707374811172485"/>
+      <geometry>
+        <mesh filename="file://ur10e/meshes/obj/forearm_0.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_12_material">
+        <color rgba="0.49 0.678 0.8 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_13">
+      <origin xyz="-2.1910695068072528e-05 0.024394892156124115 0.3868485689163208" rpy="-0.11610359698534012 -0.0014048487646505237 -0.011671326123178005"/>
+      <geometry>
+        <mesh filename="file://ur10e/meshes/obj/forearm_1.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_13_material">
+        <color rgba="0.033 0.033 0.033 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_14">
+      <origin xyz="1.775347118382342e-05 0.0125293442979455 0.249954491853714" rpy="0.00011143810843350366 0.022374339401721954 1.576870322227478"/>
+      <geometry>
+        <mesh filename="file://ur10e/meshes/obj/forearm_2.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_14_material">
+        <color rgba="0.278 0.278 0.278 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_15">
+      <origin xyz="0.00011829267168650404 -0.0002019968960667029 0.27932435274124146" rpy="-0.0003655962646007538 -0.00017792962898965925 1.9530911445617676"/>
+      <geometry>
+        <mesh filename="file://ur10e/meshes/obj/forearm_3.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_15_material">
+        <color rgba="0.82 0.82 0.82 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="wrist_1_joint" type="revolute">
+    <origin xyz="0.0 0.0 0.5709999799728394" rpy="-0.0 1.5707963705062866 0.0"/>
+    <axis xyz="0.0 1.0 0.0"/>
+    <parent link="forearm_link"/>
+    <child link="wrist_1_link"/>
+    <limit effort="1000.0" lower="-6.2831902503967285" upper="6.2831902503967285" velocity="1000.0"/>
+  </joint>
+  <link name="wrist_1_link">
+    <inertial>
+      <origin xyz="0.0 0.13500000536441803 0.0" rpy="0.0 0.0 0.0"/>
+      <mass value="1.9600000381469727"/>
+      <inertia ixx="0.005108249839395285" ixy="0.0" ixz="0.0" iyy="0.005108249839395285" iyz="0.0" izz="0.0055125001817941666"/>
+    </inertial>
+    <collision name="Geom_21">
+      <origin xyz="0.0 0.05999999865889549 0.0" rpy="1.5707963705062866 0.0 0.0"/>
+      <geometry>
+        <cylinder radius="0.05000000074505806" length="0.14000000059604645"/>
+      </geometry>
+    </collision>
+    <visual name="Geom_18">
+      <origin xyz="-9.982592018786818e-06 0.13517743349075317 0.06050030142068863" rpy="-1.1014034748077393 -1.5706580877304077 2.6721997261047363"/>
+      <geometry>
+        <mesh filename="file://ur10e/meshes/obj/wrist1_0.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_18_material">
+        <color rgba="0.033 0.033 0.033 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_19">
+      <origin xyz="-2.7700732516677817e-06 0.14092853665351868 -0.04046843945980072" rpy="3.1234824657440186 -1.2692885398864746 -1.5707008838653564"/>
+      <geometry>
+        <mesh filename="file://ur10e/meshes/obj/wrist1_1.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_19_material">
+        <color rgba="0.49 0.678 0.8 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_20">
+      <origin xyz="-2.1887860839342466e-06 0.12703046202659607 0.019669165834784508" rpy="3.140587091445923 -0.8972643613815308 -1.5698198080062866"/>
+      <geometry>
+        <mesh filename="file://ur10e/meshes/obj/wrist1_2.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_20_material">
+        <color rgba="0.278 0.278 0.278 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="wrist_2_joint" type="revolute">
+    <origin xyz="2.220446049250313e-16 0.13500000536441803 0.0" rpy="0.0 0.0 0.0"/>
+    <axis xyz="0.0 0.0 1.0"/>
+    <parent link="wrist_1_link"/>
+    <child link="wrist_2_link"/>
+    <limit effort="1000.0" lower="-6.2831902503967285" upper="6.2831902503967285" velocity="1000.0"/>
+  </joint>
+  <link name="wrist_2_link">
+    <inertial>
+      <origin xyz="0.0 0.0 0.11999999731779099" rpy="0.0 0.0 0.0"/>
+      <mass value="1.9600000381469727"/>
+      <inertia ixx="0.005108249839395285" ixy="0.0" ixz="0.0" iyy="0.005108249839395285" iyz="0.0" izz="0.0055125001817941666"/>
+    </inertial>
+    <collision name="Geom_25">
+      <origin xyz="0.0 0.0 0.05000000074505806" rpy="0.0 0.0 0.0"/>
+      <geometry>
+        <cylinder radius="0.04600000008940697" length="0.12999999523162842"/>
+      </geometry>
+    </collision>
+    <collision name="Geom_26">
+      <origin xyz="0.0 0.02800000086426735 0.11999999731779099" rpy="1.5707963705062866 0.0 0.0"/>
+      <geometry>
+        <cylinder radius="0.04600000008940697" length="0.0860000029206276"/>
+      </geometry>
+    </collision>
+    <visual name="Geom_22">
+      <origin xyz="1.737171805871185e-05 0.06140662357211113 0.11943358182907104" rpy="0.7093445658683777 0.00019521763897500932 1.570730447769165"/>
+      <geometry>
+        <mesh filename="file://ur10e/meshes/obj/wrist2_0.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_22_material">
+        <color rgba="0.033 0.033 0.033 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_23">
+      <origin xyz="3.399460410946631e-06 -0.03994759917259216 0.12525595724582672" rpy="-0.014044073410332203 0.3013688027858734 1.5707963705062866"/>
+      <geometry>
+        <mesh filename="file://ur10e/meshes/obj/wrist2_1.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_23_material">
+        <color rgba="0.49 0.678 0.8 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_24">
+      <origin xyz="1.5730402083136141e-06 0.02357337810099125 0.11706835776567459" rpy="-0.0001417357852915302 0.7848543524742126 1.570745825767517"/>
+      <geometry>
+        <mesh filename="file://ur10e/meshes/obj/wrist2_2.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_24_material">
+        <color rgba="0.278 0.278 0.278 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="wrist_3_joint" type="revolute">
+    <origin xyz="2.220446049250313e-16 0.0 0.11999999731779099" rpy="0.0 0.0 0.0"/>
+    <axis xyz="0.0 1.0 0.0"/>
+    <parent link="wrist_2_link"/>
+    <child link="wrist_3_link"/>
+    <limit effort="1000.0" lower="-6.2831902503967285" upper="6.2831902503967285" velocity="1000.0"/>
+  </joint>
+  <link name="wrist_3_link">
+    <inertial>
+      <origin xyz="0.0 0.09200000017881393 0.0" rpy="0.0 0.0 0.0"/>
+      <mass value="0.20200000703334808"/>
+      <inertia ixx="0.00014434600598178804" ixy="0.0" ixz="0.0" iyy="0.00020452500029932708" iyz="0.0" izz="0.00014434600598178804"/>
+    </inertial>
+    <collision name="Geom_28">
+      <origin xyz="0.0 0.09700000286102295 0.0" rpy="1.5707963705062866 0.0 0.0"/>
+      <geometry>
+        <cylinder radius="0.04600000008940697" length="0.03999999910593033"/>
+      </geometry>
+    </collision>
+    <visual name="Geom_27">
+      <origin xyz="-2.434268481010804e-06 0.0956597551703453 -0.0005147930351085961" rpy="0.04771201312541962 0.0025624134577810764 1.5706762075424194"/>
+      <geometry>
+        <mesh filename="file://ur10e/meshes/obj/wrist3.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_27_material">
+        <color rgba="0.82 0.82 0.82 1.0"/>
+      </material>
+    </visual>
+  </link>
+</robot>

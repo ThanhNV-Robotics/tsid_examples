@@ -1,0 +1,127 @@
+<mujoco model="Bipedal_Final">
+    <option gravity="0 0 -9.81" />
+    <compiler angle="degree" meshdir="meshes/" autolimits="true" />
+    <!-- discardvisual="True"  -->
+
+    <option timestep="0.001"></option>
+    <statistic extent="0.3" center="0.3 0 0" meansize=".03" />
+
+    <default>
+        <geom type="mesh" />
+    </default>
+    <default>
+        <default class="visual">
+            <geom contype="0" conaffinity="0" group="0" density="0" rgba="0.5 0.5 0.5 1" />
+        </default>
+        <default class="transparent">
+            <geom contype="0" conaffinity="0" group="0" density="0" rgba="0.5 0.5 0.5 0.3" />
+        </default>
+        <default class="collision">
+            <geom group="0" rgba="0.7 0.7 0.7 1" />
+        </default>
+    </default>
+
+    <default>
+        <default class="AK8064_actuator">
+            <joint damping="0.02" armature="0.231" frictionloss="4.8" />
+        </default>
+
+        <default class="AK7010_actuator">
+            <joint damping="0.015" armature="0.00414" frictionloss="0.5" />
+        </default>
+
+        <default class="AK109_actuator">
+            <joint damping="0.03" armature="0.00812" frictionloss="0.5" />
+        </default>
+
+        <default class="AK606_actuator">
+            <joint damping="0.02" armature="0.00088" frictionloss="0.25" />
+        </default>
+
+        <default class="Revolute">
+            <joint damping="0.0" frictionloss="0.0" />
+        </default>
+    </default>
+
+    <!--   Fusion outputs meshes with mm units by default, but must be converted to m in MuJoCo, hence
+    the scaling   -->
+    <asset>
+        <!--   Right stl file  -->
+        <mesh name="Right_Shank_Base" file="Right_Shank_Base.stl" scale="0.001 0.001 0.001" />
+        <mesh name="Right_Link5_AnkleRoll" file="Right_Link5_AnkleRoll.stl" scale="0.001 0.001 0.001" />
+        <mesh name="Right_Link6_Foot" file="Right_Link6_Foot.stl" scale="0.001 0.001 0.001" />
+        <mesh name="Ankle_Arm" file="Ankle_Arm.stl" scale="0.001 0.001 0.001" />
+        <mesh name="Long_Shaft" file="Long_Shaft.stl" scale="0.001 0.001 0.001" />
+        <mesh name="Short_Shaft" file="Short_Shaft.stl" scale="0.001 0.001 0.001" />
+
+    </asset>
+    <visual>
+        <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0" />
+        <rgba haze="0.15 0.25 0.35 1" />
+        <global azimuth="-130" elevation="-20" />
+    </visual>
+
+    <asset>
+        <texture builtin="gradient" height="100" rgb1=".4 .5 .6" rgb2="0 0 0" type="skybox" width="100" />
+        <texture name="texplane" type="2d" builtin="checker" rgb1=".2 .3 .4" rgb2=".1 0.15 0.2" width="100" height="100" />
+        <material name="MatPlane" reflectance="0.1" texture="texplane" texrepeat="1 1" texuniform="true" />
+    </asset>
+
+    
+
+    <worldbody>
+        <geom name="ground" pos="0 0 0" size="5 5 0.05" type="plane" material = "MatPlane" friction= "1 1 0.1" condim="3" conaffinity="1" contype="1" group="2" rgba="0.8 0.9 0.8 1" />
+
+        <light cutoff="1000" diffuse="1 1 1" dir="-0 0 -1.3" directional="true" exponent="1" pos="0 0 1.3" specular=".1 .1 .1" castshadow="false" />
+        <body name="Right_Shank_Base" pos="0 0 0.5" euler="0 90 0">
+            <geom type="mesh" class="visual" mesh="Right_Shank_Base" />
+            <inertial pos="-171.962E-3 -3.761E-3 9.336E-3" mass="1.879" fullinertia="1.480E-3 1.633E-2 1.653E-2 -8.795E-4 -7.738E-4 -35348.501E-9" />
+            
+            <body name="Right_Link5_AnkleRoll" pos="0 0 0" euler="90 0 0">
+                <joint type="hinge" name="Right_Ankle_Roll" axis="0 1 0" pos="0 0 0" range="-20 20" class = "Revolute"/>
+                <geom type="mesh" class="visual" mesh="Right_Link5_AnkleRoll" />
+                <inertial pos="0 0 0" mass="40.313E-3" fullinertia="7009E-9 3498.104E-9 5125.014E-9 0 0 0" />
+
+                <body name="Right_Link6_Foot" pos="0 0 0" euler="180 0 0">
+                    <joint type="hinge" name="Right_Ankle_Pitch" axis="0 0 1" pos="0 0 0" class = "Revolute" range="-20 20"/>
+                    <geom type="mesh" name = "Right_Foot" class="visual" mesh="Right_Link6_Foot" />
+                    <inertial pos="30.483E-3 -29.106E-3 0" mass="343.229E-3" fullinertia="9.434E-4 1.546E-4 8.770E-4 50230.908E-9 -40.36E-9 9.97E-9" />                    
+                </body>
+            </body>
+
+            <body name="Ankle_Arm05" pos="-0.23 0 0.032" euler="-90 -90 0">
+                <joint type="hinge" name="Motor5_Joint" axis="0 -1 0" pos="0 0 0" range="-80 80" class = "Revolute"/>
+                <geom type="mesh" name = "Ankle_Arm05" class="visual" mesh="Ankle_Arm" />
+                <inertial pos="-3.335E-3 4.815E-3 0" mass="17.273E-3" fullinertia="1402.905E-9 3571.185E-9 2503.653E-9 -214.87E-9 0 0" />
+
+                <body name="Long_Shaft" pos="-0.023 -0.0155 0" euler="90 0 180">
+                    <joint type="hinge" name="Ball1_x" axis="1 0 0" pos="0 0 -4.5E-3" range="-60 60"/>
+                    <joint type="hinge" name="Ball1_y" axis="0 0 1" pos="0 0 0" range="-60 60"/>
+                    <geom type="mesh" name = "Long_Shaft" class="visual" mesh="Long_Shaft" />
+                    <inertial pos="0 125E-3 -4.5E-3" mass="129.809E-3" fullinertia="9.902E-4 1903.573E-9 9.902E-4 0 0 0" />
+                </body>
+            </body>
+
+            <body name="Ankle_Arm06" pos="-0.145 0 0.032" euler="-90 90 0">
+                <joint type="hinge" name="Motor6_Joint" axis="0 -1 0" pos="0 0 0" range="-80 80" class = "Revolute"/>
+                <geom type="mesh" name = "Ankle_Arm06" class="visual" mesh="Ankle_Arm" />
+                <inertial pos="-3.335E-3 4.815E-3 0" mass="17.273E-3" fullinertia="1402.905E-9 3571.185E-9 2503.653E-9 -214.87E-9 0 0" />
+
+                <body name="Short_Shaft" pos="-0.023 -0.0155 0" euler="90 0 0">
+                    <joint type="hinge" name="Ball2_x" axis="1 0 0" pos="0 0 -4.5E-3" range="-60 60"/>
+                    <joint type="hinge" name="Ball2_y" axis="0 0 1" pos="0 0 0" range="-60 60"/>
+                    <geom type="mesh" name = "Short_Shaft" class="visual" mesh="Short_Shaft" />
+                    <inertial pos="0 82.5E-3 -4.2E-3" mass="103.134E-3" fullinertia="3.878E-4 1714.173E-9 3.878E-4 0 0 0" />
+                </body>
+            </body>
+        </body>
+    </worldbody>
+	<equality>
+        <connect name="linkage_1" body1="Long_Shaft" body2="Right_Link6_Foot" anchor="0.0 0.25 -0.0045" />
+        <connect name="linkage_2" body1="Short_Shaft" body2="Right_Link6_Foot" anchor="0.0 0.165 -0.0045" />
+    </equality>
+    <actuator>
+        <motor name="motor5" joint="Motor5_Joint" ctrlrange="-9 9" />
+        <motor name="motor6" joint="Motor6_Joint" ctrlrange="-9 9" />
+    </actuator>
+</mujoco>

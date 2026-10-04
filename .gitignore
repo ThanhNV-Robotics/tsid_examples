@@ -1,0 +1,79 @@
+# ===================================================================
+# Compiled Objects & Binaries
+# ===================================================================
+*.o
+*.obj
+*.slo
+*.lo
+*.gch
+*.pch
+*.so
+*.dylib
+*.dll
+*.mod
+*.smod
+*.lai
+*.la
+*.a
+*.lib
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# ===================================================================
+# Build Directories & Artifacts (CMake, Ninja, Make)
+# ===================================================================
+[Bb]uild/
+[Bb]uild*/
+[Bb]in/
+[Ll]ib/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+compile_commands.json
+CTestTestfile.cmake
+
+# ===================================================================
+# Clang / Language Server / IDEs
+# ===================================================================
+.clangd/
+.clangd
+.cache/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.bak
+
+# ===================================================================
+# OS & File System Artifacts
+# ===================================================================
+.DS_Store
+Thumbs.db
+*:Zone.Identifier
+*.Zone.Identifier
+
+# ===================================================================
+# Python Artifacts
+# ===================================================================
+__pycache__/
+*.py[cod]
+*.class
+.ipynb_checkpoints/
+
+# ===================================================================
+# Project Specific (External repos, logs, runtime outputs)
+# ===================================================================
+# External TSID source submodule / folder
+tsid/
+
+# Simulation logs, recordings, data output
+record/
+script

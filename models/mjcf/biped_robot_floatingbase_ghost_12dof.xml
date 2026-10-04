@@ -1,0 +1,112 @@
+<mujoco model="Bipedal_Final_Ghost">
+    <!-- Ghost/estimate overlay: meant to be included into a scene after
+    biped_robot_floatingbase_12dof.xml (see scene_state_est.xml), sharing that
+    file's compiler, mesh assets, and actuator joint-default classes rather
+    than redeclaring them, since MuJoCo compiles all included files into a
+    single flat document, so mesh/name/default-class collisions across files
+    are compile errors, not per-file scopes.
+
+    No asset/mesh block here: it reuses the mesh assets the real robot's file
+    already declared (same STL, no need to load it twice, and re-declaring a
+    mesh with a name already in use would fail to compile).
+
+    Every body/joint/geom name below is "_est"-suffixed so it can't collide
+    with the real robot's names once merged. It only defines one new default
+    class, "visual_est" (translucent red); reusing the real robot's "visual"
+    class by name would silently inherit its gray rgba instead.
+
+    No collision geoms, sensors, actuators, or keyframe: this body is only
+    ever meant to be driven by directly writing the state estimate into its
+    qpos each frame and calling mj_forward() (not mj_step()) to refresh the
+    kinematics before rendering, since it's never simulated, so nothing here
+    should be able to physically collide with the real robot or receive
+    contact forces. -->
+    <default>
+        <default class="visual_est">
+            <geom contype="0" conaffinity="0" group="0" density="0" rgba="1 0 0 0.4" />
+        </default>
+    </default>
+
+    <worldbody>
+        <!--   Link0_Torso -->
+        <body name="link0_torso_est" pos="0 0 0.80" euler="0 0 0">
+            <geom type="mesh" class="visual_est" mesh="link0_torso" />
+            <joint name="floating_base_joint_est" type="free" limited="false" actuatorfrclimited="false"/>
+            <inertial pos="0.022E-3 0.011E-3 -9.359E-3" mass="5.721" fullinertia="1.338E-1 1.019E-1 6.278E-2 -7542.256E-9 8599.288E-9 8566.243E-9"/>
+
+            <!--   Left leg kinematic chain  -->
+            <body name="left_hip_pitch_link_est" pos="0 89.761E-3 -81.437E-3" euler="-15 0 0">
+                <joint type="hinge" name="left_hip_pitch_joint_est" axis="0 1 0" pos="0 0 0" range="-60 60" />
+                <geom type="mesh" class="visual_est" mesh="left_hip_pitch_link" />
+                <inertial pos="5.535E-3 59.218E-3 0.579E-3" mass="1.764" fullinertia="3.317E-3 2.287E-3 3.489E-3 -1.532E-4 5446.612E-9 1125.189E-9" />
+
+                    <body name="left_hip_roll_link_est" pos="0 75E-3 0" euler="15 0 0">
+                        <joint type="hinge" name="left_hip_roll_joint_est" axis="1 0 0" pos="0 0 0" range="-45 60" />
+                        <geom type="mesh" class="visual_est" mesh="left_hip_roll_link" />
+                        <inertial pos="0.016E-3 -0.136E-3 -73.241E-3" mass="1.2918" fullinertia="2.359E-3 3.153E-3 1.975E-3 -927.06E-9 -3429.47E-9 -927.06E-9" />
+
+                            <body name="left_hip_yaw_link_est" pos="0 0 -120.5E-3" euler="0 0 0">
+                                <joint type="hinge" name="left_hip_yaw_joint_est" axis="0 0 1" pos="0 0 0" range="-45 45" />
+                                <geom type="mesh" class="visual_est" mesh="left_hip_yaw_link" />
+                                <inertial pos="-0.314E-3 -13.334E-3 -166.036E-3" mass="1.983" fullinertia="1.165E-2 1.208E-2 2.085E-3 26778.277E-9 -32964.406E-9 -9.808E-4" />
+
+                                <body name="left_knee_link_est" pos="0 0 -203.5E-3" euler="0 0 0">
+                                    <joint type="hinge" name="left_knee_pitch_joint_est" axis="0 1 0" pos="0 0 0" range="-10 120" />
+                                    <geom type="mesh" class="visual_est" mesh="left_knee_link" />
+                                    <inertial pos="9.7E-3 3.585E-3 -164.623E-3" mass="1.894" fullinertia="1.720E-2 1.702E-2 1.510E-3 31715.102E-9 8.973E-4 -8.846E-4" />
+
+                                         <body name="left_ankle_roll_link_est" pos="0 0 -335E-3" euler="0 0 0">
+                                                <joint type="hinge" name="left_ankle_roll_joint_est" axis="1 0 0" pos="0 0 0" range="-15 15" />
+                                                <geom type="mesh" class="visual_est" mesh="left_ankle_roll_link" />
+                                                <inertial pos="0 0 0" mass="40.313E-3" fullinertia="7009E-9 3498.104E-9 5125.014E-9 0 0 0" />
+
+                                                <body name="left_ankle_pitch_link_est" pos="0 0 0" euler="0 0 0">
+                                                    <joint type="hinge" name="left_ankle_pitch_joint_est" axis="0 1 0" pos="0 0 0" range="-30 30" />
+                                                    <geom name = "Left_Foot_est" type="mesh" friction="5.0 0.1 0.1" class="visual_est" mesh="left_ankle_pitch_link" />
+                                                    <inertial pos="29.106E-3 0 -30.483E-3" mass="343.229E-3" fullinertia="1.546E-4 8.770E-4 9.434E-4 -9.97E-9 50230.908E-9 40.36E-9" />
+                                                </body>
+                                         </body>
+                                </body>
+                            </body>
+                    </body>
+            </body>
+
+            <body name="right_hip_pitch_link_est" pos="0 -89.761E-3 -81.437E-3" euler="15 0 0">
+                <joint type="hinge" name="right_hip_pitch_joint_est" axis="0 1 0" pos="0 0 0" range="-60 60" />
+                <geom type="mesh" class="visual_est" mesh="right_hip_pitch_link" />
+                <inertial pos="5.579E-3 -59.77E-3 0.581E-3" mass="1.764" fullinertia="3.245E-3 2.285E-3 3.417E-3 1.478E-4 5415.03E-9 -1738.735E-9" />
+
+                    <body name="right_hip_roll_link_est" pos="0 -75E-3 0" euler="-15 0 0">
+                        <joint type="hinge" name="right_hip_roll_joint_est" axis="1 0 0" pos="0 0 0" ref="0" range="-60 35"/>
+                        <geom type="mesh" class="visual_est" mesh="right_hip_roll_link" />
+                        <inertial pos="0.016E-3 -0.136E-3 -73.241E-3" mass="1.2918" fullinertia="2.359E-3 3.153E-3 1.975E-3 -927.06E-9 -3429.47E-9 -927.06E-9" />
+
+                            <body name="right_hip_yaw_link_est" pos="0 0 -120.5E-3" euler="0 0 0">
+                                <joint type="hinge" name="right_hip_yaw_joint_est" axis="0 0 1" pos="0 0 0" range="-45 45" />
+                                <geom type="mesh" class="visual_est" mesh="right_hip_yaw_link" />
+                                <inertial pos="-0.029E-3 13.844E-3 -165.473E-3" mass="1.983" fullinertia="1.164E-2 1.208E-2 2.009E-3 2389.96E-9 -1032.992E-9 9.596E-4" />
+
+                                <body name="right_knee_link_est" pos="0 0 -203.5E-3" euler="0 0 0">
+                                    <joint type="hinge" name="right_knee_pitch_joint_est" axis="0 1 0" pos="0 0 0" range="-10 120" />
+                                    <geom type="mesh" class="visual_est" mesh="right_knee_link" />
+                                    <inertial pos="9.336E-3 -3.761E-3 -163.038E-3" mass="1.879" fullinertia="1.653E-2 1.633E-2 1.480E-3 -35348.501E-9 7.738E-4 8.795E-4" />
+
+                                    <body name="right_ankle_roll_link_est" pos="0 0 -335E-3" euler="0 0 0">
+                                        <joint type="hinge" name="right_ankle_roll_joint_est" axis="1 0 0" pos="0 0 0" range="-15 15" />
+                                        <geom type="mesh" class="visual_est" mesh="right_ankle_roll_link" />
+                                        <inertial pos="0 0 0" mass="40.313E-3" fullinertia="7009E-9 3498.104E-9 5125.014E-9 0 0 0" />
+
+                                        <body name="right_ankle_pitch_link_est" pos="0 0 0" euler="0 0 0">
+                                            <joint type="hinge" name="right_ankle_pitch_joint_est" axis="0 1 0" pos="0 0 0" range="-30 30" />
+                                            <geom type="mesh" name = "Right_Foot_est" friction="5.0 0.1 0.1" class="visual_est" mesh="right_ankle_pitch_link" />
+                                            <inertial pos="29.106E-3 0 -30.483E-3" mass="343.229E-3" fullinertia="1.546E-4 8.770E-4 9.434E-4 -9.97E-9 50230.908E-9 40.36E-9" />
+                                        </body>
+                                    </body>
+                                </body>
+                            </body>
+                    </body>
+            </body>
+        </body>
+        <!--   End of 2 legs  -->
+    </worldbody>
+</mujoco>

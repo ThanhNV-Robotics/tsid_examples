@@ -1,0 +1,446 @@
+<?xml version="1.0" ?>
+<robot name="fr3v2" version="1.0">
+
+    <mujoco>
+        <compiler 
+            meshdir="meshes/" 
+            balanceinertia="true" 
+            strippath="false" />
+    </mujoco>
+
+  <!-- <link name="world"/> -->
+  <!-- <joint name="base_joint" type="fixed">
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+    <parent link="world"/>
+    <child link="base"/>
+  </joint> -->
+  <link name="base">
+    <inertial>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+      <mass value="0.009999999776482582"/>
+      <inertia ixx="9.999999747378752e-06" ixy="0.0" ixz="0.0" iyy="9.999999747378752e-06" iyz="0.0" izz="9.999999747378752e-06"/>
+    </inertial>
+  </link>
+  <joint name="fr3v2_link0_joint" type="fixed">
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+    <parent link="base"/>
+    <child link="fr3v2_link0"/>
+  </joint>
+  <link name="fr3v2_link0">
+    <inertial>
+      <origin xyz="-0.01720000058412552 0.00039999998989515007 0.07450000196695328" rpy="0.0 0.0 0.0"/>
+      <mass value="3.8499999046325684"/>
+      <inertia ixx="0.00900002010166645" ixy="0.0" ixz="0.0020000156946480274" iyy="0.011500000022351742" iyz="0.0" izz="0.008500020019710064"/>
+    </inertial>
+    <visual name="Geom_0">
+      <origin xyz="-0.06954485923051834 0.02128300629556179 0.12500016391277313" rpy="1.5707963705062866 0.0 0.006669155787676573"/>
+      <geometry>
+        <mesh filename="obj/link0_0.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_0_material">
+        <color rgba="0.2 0.2 0.2 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_1">
+      <origin xyz="-0.03239068388938904 0.00014318795001599938 0.049452222883701324" rpy="-0.04784393310546875 -1.2268272638320923 -3.087491750717163"/>
+      <geometry>
+        <mesh filename="obj/link0_1.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_1_material">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_2">
+      <origin xyz="-0.007624972611665726 1.4502381418424193e-05 0.12110189348459244" rpy="3.139204502105713 -1.5334410667419434 -0.0011932875495404005"/>
+      <geometry>
+        <mesh filename="obj/link0_2.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_2_material">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_3">
+      <origin xyz="-0.044770244508981705 -0.006901370827108622 0.0423138365149498" rpy="-0.008038689382374287 -1.4889030456542969 1.5744752883911133"/>
+      <geometry>
+        <mesh filename="obj/link0_3.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_3_material">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_4">
+      <origin xyz="-0.042102061212062836 -0.018968937918543816 0.044090960174798965" rpy="-0.04201609268784523 -1.4831947088241577 1.5164601802825928"/>
+      <geometry>
+        <mesh filename="obj/link0_4.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_4_material">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_5">
+      <origin xyz="-0.030616484582424164 5.319479896570556e-07 0.0019887371454387903" rpy="3.1415927410125732 -1.5707963705062866 0.0"/>
+      <geometry>
+        <mesh filename="obj/link0_5.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_5_material">
+        <color rgba="1.0 0.072272 0.039546 1.0"/>
+      </material>
+    </visual>
+    <collision name="Geom_6">
+      <origin xyz="-0.028699275106191635 -0.00022794496908318251 0.055434685200452805" rpy="0.13535979390144348 -1.111262321472168 2.993865966796875"/>
+      <geometry>
+        <mesh filename="stl/link0_coll.stl" scale="1.0 1.0 1.0"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="fr3v2_joint1" type="revolute">
+    <origin xyz="0.0 0.0 0.3330000042915344" rpy="0.0 0.0 0.0"/>
+    <axis xyz="0.0 0.0 1.0"/>
+    <parent link="fr3v2_link0"/>
+    <child link="fr3v2_link1"/>
+    <limit effort="1000.0" lower="-2.743699789047241" upper="2.743699789047241" velocity="1000.0"/>
+  </joint>
+  <link name="fr3v2_link1">
+    <inertial>
+      <origin xyz="-0.004579999949783087 0.02701600082218647 -0.061799999326467514" rpy="0.0 0.0 0.0"/>
+      <mass value="2.437700033187866"/>
+      <inertia ixx="0.023240040987730026" ixy="0.00033300602808594704" ixz="-0.0006760018295608461" iyy="0.021460004150867462" iyz="0.0037390172947198153" izz="0.005500003695487976"/>
+    </inertial>
+    <collision name="Geom_7">
+      <origin xyz="3.536258373060264e-05 -0.03410591930150986 -0.06730160862207413" rpy="0.3940581679344177 6.255302287172526e-05 -0.0008921818225644529"/>
+      <geometry>
+        <mesh filename="stl/link1_coll.stl" scale="1.0 1.0 1.0"/>
+      </geometry>
+    </collision>
+    <visual name="Geom_8">
+      <origin xyz="2.3469297047995497e-06 -0.03411887586116791 -0.06723298877477646" rpy="0.3981959819793701 -0.0002245946816401556 0.00034456353751011193"/>
+      <geometry>
+        <mesh filename="obj/link1_3.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_8_material">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="fr3v2_joint2" type="revolute">
+    <origin xyz="0.0 0.0 0.0" rpy="-1.5707963705062866 0.0 0.0"/>
+    <axis xyz="0.0 0.0 1.0"/>
+    <parent link="fr3v2_link1"/>
+    <child link="fr3v2_link2"/>
+    <limit effort="1000.0" lower="-1.7836999893188477" upper="1.7836999893188477" velocity="1000.0"/>
+  </joint>
+  <link name="fr3v2_link2">
+    <inertial>
+      <origin xyz="-0.0034729999024420977 -0.16850900650024414 -0.010479000397026539" rpy="0.0 0.0 0.0"/>
+      <mass value="2.237499952316284"/>
+      <inertia ixx="0.01902603730559349" ixy="0.0012410023482516408" ixz="0.0004990132292732596" iyy="0.005659996997565031" iyz="-0.0018039951100945473" izz="0.01711396500468254"/>
+    </inertial>
+    <collision name="Geom_9">
+      <origin xyz="-0.00011573572555789724 -0.06767185032367706 0.034073613584041595" rpy="1.9660561084747314 0.010378741659224033 0.00428831297904253"/>
+      <geometry>
+        <mesh filename="stl/link2_coll.stl" scale="1.0 1.0 1.0"/>
+      </geometry>
+    </collision>
+    <visual name="Geom_10">
+      <origin xyz="-6.814838116042665e-07 -0.06722819805145264 0.034120574593544006" rpy="1.9690219163894653 0.0002719123149290681 0.0001400129112880677"/>
+      <geometry>
+        <mesh filename="obj/link2_3.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_10_material">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="fr3v2_joint3" type="revolute">
+    <origin xyz="0.0 -0.3160000145435333 2.465190328815662e-32" rpy="1.5707963705062866 0.0 0.0"/>
+    <axis xyz="0.0 0.0 1.0"/>
+    <parent link="fr3v2_link2"/>
+    <child link="fr3v2_link3"/>
+    <limit effort="1000.0" lower="-2.9006998538970947" upper="2.9006998538970947" velocity="1000.0"/>
+  </joint>
+  <link name="fr3v2_link3">
+    <inertial>
+      <origin xyz="0.09296800196170807 0.01800999976694584 0.0335329994559288" rpy="0.0 0.0 0.0"/>
+      <mass value="2.1857900619506836"/>
+      <inertia ixx="0.010225016623735428" ixy="0.0011439693626016378" ixz="0.003497002413496375" iyy="0.012398009188473225" iyz="0.0021559824235737324" izz="0.006876993924379349"/>
+    </inertial>
+    <collision name="Geom_11">
+      <origin xyz="0.04166338965296745 0.023772140964865685 -0.03779420256614685" rpy="0.5644873380661011 -0.7415899634361267 2.955437183380127"/>
+      <geometry>
+        <mesh filename="stl/link3_coll.stl" scale="1.0 1.0 1.0"/>
+      </geometry>
+    </collision>
+    <visual name="Geom_12">
+      <origin xyz="0.04166076332330704 0.02389395236968994 -0.03766399621963501" rpy="0.5717370510101318 -0.7374547123908997 2.9461705684661865"/>
+      <geometry>
+        <mesh filename="obj/link3_3.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_12_material">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="fr3v2_joint4" type="revolute">
+    <origin xyz="0.08250000327825546 -1.232595164407831e-32 1.1102230246251565e-16" rpy="1.5707963705062866 0.0 0.0"/>
+    <axis xyz="0.0 0.0 1.0"/>
+    <parent link="fr3v2_link3"/>
+    <child link="fr3v2_link4"/>
+    <limit effort="1000.0" lower="-3.042099952697754" upper="-0.1517999917268753" velocity="1000.0"/>
+  </joint>
+  <link name="fr3v2_link4">
+    <inertial>
+      <origin xyz="-0.06874500215053558 0.09294699877500534 0.011195000261068344" rpy="0.0 0.0 0.0"/>
+      <mass value="2.175869941711426"/>
+      <inertia ixx="0.008878020569682121" ixy="-0.003749018767848611" ixz="0.0011390098370611668" iyy="0.007628009654581547" iyz="-0.00046001223381608725" izz="0.010295010171830654"/>
+    </inertial>
+    <collision name="Geom_13">
+      <origin xyz="-0.04091885685920715 0.037826262414455414 0.023765934631228447" rpy="1.1304969787597656 0.1547144502401352 0.7405940294265747"/>
+      <geometry>
+        <mesh filename="stl/link4_coll.stl" scale="1.0 1.0 1.0"/>
+      </geometry>
+    </collision>
+    <visual name="Geom_14">
+      <origin xyz="-0.04084593802690506 0.03755621612071991 0.023897763341665268" rpy="1.1313785314559937 0.1441228836774826 0.7471759915351868"/>
+      <geometry>
+        <mesh filename="obj/link4_3.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_14_material">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="fr3v2_joint5" type="revolute">
+    <origin xyz="-0.08250000327825546 0.3840000033378601 0.0" rpy="-1.5707963705062866 0.0 0.0"/>
+    <axis xyz="0.0 0.0 1.0"/>
+    <parent link="fr3v2_link4"/>
+    <child link="fr3v2_link5"/>
+    <limit effort="1000.0" lower="-2.80649995803833" upper="2.80649995803833" velocity="1000.0"/>
+  </joint>
+  <link name="fr3v2_link5">
+    <inertial>
+      <origin xyz="-0.0041970000602304935 0.010257000103592873 -0.05810299888253212" rpy="0.0 0.0 0.0"/>
+      <mass value="2.1748199462890625"/>
+      <inertia ixx="0.03187401965260506" ixy="0.00013400542957242578" ixz="-0.00026500358944758773" iyy="0.029673974961042404" iyz="-0.004733996000140905" izz="0.004751003347337246"/>
+    </inertial>
+    <collision name="Geom_15">
+      <origin xyz="8.256398359662853e-06 0.04396775737404823 -0.11271796375513077" rpy="-0.2811618745326996 0.001677443622611463 0.005467518698424101"/>
+      <geometry>
+        <mesh filename="stl/link5_coll.stl" scale="1.0 1.0 1.0"/>
+      </geometry>
+    </collision>
+    <visual name="Geom_16">
+      <origin xyz="3.026193007826805e-05 0.04390563443303108 -0.11259229481220245" rpy="-0.28340214490890503 -0.0009810097981244326 -0.003054975997656584"/>
+      <geometry>
+        <mesh filename="obj/link5_3.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_16_material">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="fr3v2_joint6" type="revolute">
+    <origin xyz="0.0 -3.0814879110195774e-33 0.0" rpy="1.5707963705062866 0.0 0.0"/>
+    <axis xyz="0.0 0.0 1.0"/>
+    <parent link="fr3v2_link5"/>
+    <child link="fr3v2_link6"/>
+    <limit effort="1000.0" lower="0.5444999933242798" upper="4.516900062561035" velocity="1000.0"/>
+  </joint>
+  <link name="fr3v2_link6">
+    <inertial>
+      <origin xyz="0.07095800340175629 -0.01413699984550476 -0.03532399982213974" rpy="0.0 0.0 0.0"/>
+      <mass value="1.567620038986206"/>
+      <inertia ixx="0.002860000589862466" ixy="-0.0005530011840164661" ixz="-0.0006379993283189833" iyy="0.003910001367330551" iyz="-0.00024000024131964892" izz="0.004529998172074556"/>
+    </inertial>
+    <collision name="Geom_17">
+      <origin xyz="0.05294813588261604 0.008220069110393524 0.006790670100599527" rpy="3.1028285026550293 -1.4074361324310303 0.18457752466201782"/>
+      <geometry>
+        <mesh filename="stl/link6_coll.stl" scale="1.0 1.0 1.0"/>
+      </geometry>
+    </collision>
+    <visual name="Geom_18">
+      <origin xyz="-0.018776042386889458 0.04382998123764992 -0.0035635631065815687" rpy="0.0 0.0 0.0"/>
+      <geometry>
+        <mesh filename="obj/link6_0.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_18_material">
+        <color rgba="0.863156 0.863156 0.863157 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_19">
+      <origin xyz="-0.0022964051458984613 0.028239335864782333 -0.01709832437336445" rpy="1.7850382328033447 -1.1102230246251565e-15 0.7892701029777527"/>
+      <geometry>
+        <mesh filename="obj/link6_1.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_19_material">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_20">
+      <origin xyz="-0.002460467629134655 -0.0017712694825604558 -0.008525123819708824" rpy="0.23834228515625 -1.5378144979476929 1.667112112045288"/>
+      <geometry>
+        <mesh filename="obj/link6_2.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_20_material">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_21">
+      <origin xyz="-0.018400069326162338 0.04192953556776047 -0.012701008468866348" rpy="1.5707963705062866 -1.3322676295501878e-15 1.5707963705062866"/>
+      <geometry>
+        <mesh filename="obj/link6_3.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_21_material">
+        <color rgba="0.863156 0.863156 0.863157 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_22">
+      <origin xyz="0.08841133117675781 0.07738135755062103 -0.02465902827680111" rpy="0.0 0.0 0.0"/>
+      <geometry>
+        <mesh filename="obj/link6_4.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_22_material">
+        <color rgba="0.520996 0.008023 0.013702 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_23">
+      <origin xyz="0.08809150755405426 0.07734859734773636 0.025016052648425102" rpy="0.0 0.0 0.0"/>
+      <geometry>
+        <mesh filename="obj/link6_5.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_23_material">
+        <color rgba="0.520996 0.008023 0.013702 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_24">
+      <origin xyz="0.08808715641498566 0.07726770639419556 2.088344808726106e-05" rpy="0.0 0.0 1.5707963705062866"/>
+      <geometry>
+        <mesh filename="obj/link6_6.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_24_material">
+        <color rgba="0.2 0.2 0.2 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_25">
+      <origin xyz="0.05857384204864502 0.005303046200424433 0.009080121293663979" rpy="2.8610734939575195 -1.2815022468566895 0.30550339818000793"/>
+      <geometry>
+        <mesh filename="obj/link6_7.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_25_material">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_26">
+      <origin xyz="0.09528373181819916 0.07478819042444229 1.3844130990037229e-05" rpy="1.5707963705062866 -1.3322676295501878e-15 1.36479914188385"/>
+      <geometry>
+        <mesh filename="obj/link6_8.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_26_material">
+        <color rgba="0.520996 0.008023 0.013702 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_27">
+      <origin xyz="0.08387646824121475 0.06983983516693115 0.0016951962606981397" rpy="2.161500930786133 -0.2884107530117035 1.8143755197525024"/>
+      <geometry>
+        <mesh filename="obj/link6_9.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_27_material">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="fr3v2_joint7" type="revolute">
+    <origin xyz="0.08799999952316284 0.0 -2.465190328815662e-32" rpy="1.5707963705062866 0.0 0.0"/>
+    <axis xyz="0.0 0.0 1.0"/>
+    <parent link="fr3v2_link6"/>
+    <child link="fr3v2_link7"/>
+    <limit effort="1000.0" lower="-3.015899896621704" upper="3.015899896621704" velocity="1000.0"/>
+  </joint>
+  <link name="fr3v2_link7">
+    <inertial>
+      <origin xyz="0.008204000070691109 0.001155999954789877 0.06101600080728531" rpy="0.0 0.0 0.0"/>
+      <mass value="0.6828759908676147"/>
+      <inertia ixx="0.0008990001515485346" ixy="5.4148314304613976e-11" ixz="-1.299984705838142e-05" iyy="0.001099002081900835" iyz="-2.2000096578267403e-05" izz="0.000701999815646559"/>
+    </inertial>
+    <collision name="Geom_28">
+      <origin xyz="0.008869667537510395 0.008828052319586277 0.07781004160642624" rpy="3.110067844390869 -1.4942069053649902 -2.32356858253479"/>
+      <geometry>
+        <mesh filename="stl/link7_coll.stl" scale="1.0 1.0 1.0"/>
+      </geometry>
+    </collision>
+    <visual name="Geom_29">
+      <origin xyz="0.039925094693899155 0.03992677107453346 0.0819113627076149" rpy="-1.5707963705062866 -1.3557379245758057 -2.356189012527466"/>
+      <geometry>
+        <mesh filename="obj/link7_0.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_29_material">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_30">
+      <origin xyz="-0.033875472843647 -0.03387569263577461 0.08597685396671295" rpy="1.5707963705062866 -1.1102230246251565e-15 2.3561642169952393"/>
+      <geometry>
+        <mesh filename="obj/link7_1.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_30_material">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_31">
+      <origin xyz="0.04113716632127762 0.041190315037965775 0.08178459852933884" rpy="-1.5705424547195435 -1.1063929796218872 -2.3563406467437744"/>
+      <geometry>
+        <mesh filename="obj/link7_2.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_31_material">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_32">
+      <origin xyz="-0.0167338028550148 -0.04057532176375389 0.060882095247507095" rpy="0.0 0.0 0.0"/>
+      <geometry>
+        <mesh filename="obj/link7_3.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_32_material">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_33">
+      <origin xyz="-0.01681630313396454 -0.04064778983592987 0.054485030472278595" rpy="0.0 0.0 0.0"/>
+      <geometry>
+        <mesh filename="obj/link7_4.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_33_material">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_34">
+      <origin xyz="-0.015106997452676296 -0.03895037993788719 0.05398016422986984" rpy="1.5707963705062866 -1.3322676295501878e-15 1.5707963705062866"/>
+      <geometry>
+        <mesh filename="obj/link7_5.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_34_material">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <visual name="Geom_35">
+      <origin xyz="-0.000486381963128224 -0.00035491527523845434 0.07785233855247498" rpy="0.15984080731868744 -1.5452957153320312 0.657777726650238"/>
+      <geometry>
+        <mesh filename="obj/link7_6.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="Geom_35_material">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="fr3v2_link8_joint" type="fixed">
+    <origin xyz="0.0 0.0 0.107" rpy="0.0 0.0 0.0"/>
+    <parent link="fr3v2_link7"/>
+    <child link="fr3v2_link8"/>
+  </joint>
+  <link name="fr3v2_link8">
+    <inertial>
+      <origin xyz="0.0 0.0 0.10700000077486038" rpy="0.0 0.0 0.0"/>
+      <mass value="0.009999999776482582"/>
+      <inertia ixx="9.999999747378752e-06" ixy="0.0" ixz="0.0" iyy="9.999999747378752e-06" iyz="0.0" izz="9.999999747378752e-06"/>
+    </inertial>
+  </link>
+</robot>
