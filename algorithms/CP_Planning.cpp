@@ -1,4 +1,5 @@
 #include "CP_Planning.h"
+#include <algorithm>
 #include "data_type.h"
 #include <cmath>
 
@@ -41,11 +42,24 @@ CP_Planning::CP_Planning(const double dtIn, const double zIn, double wd_hipIn)
 
 }
 
-void CP_Planning::setInitCom (Vector3d com_pos)
+void CP_Planning::setInitCom (Vector3d com_pos, Vector3d com_vel)
 {
     this->xc_ = com_pos[0];
     this->yc_ = com_pos[1];
     this->zc_ = com_pos[2];
+    this->w = std::sqrt(this->g / this->zc_); // keep w consistent with the new height
+
+    this->d_xc_ = com_vel[0];
+    this->d_yc_ = com_vel[1];
+
+    // Capture point consistent with the CoM state; without this it stays at
+    // (0, 0) from the constructor and d_xc = w(cxi - xc) drags the CoM there
+    this->cxi_x_ = this->xc_ + this->d_xc_ / this->w;
+    this->cxi_y_ = this->yc_ + this->d_yc_ / this->w;
+    this->cxi_x0_ = this->cxi_xd_ = this->cxi_x_;
+    this->cxi_y0_ = this->cxi_yd_ = this->cxi_y_;
+    this->px_d_ = this->cxi_x_;
+    this->py_d_ = this->cxi_y_;
 
     this->xBias = com_pos[0];
     this->yBias = com_pos[1];
@@ -55,6 +69,16 @@ Vector3d CP_Planning::getCoMref()
 {
     Vector3d comRef{xc_, yc_, zc_};
     return comRef;
+}
+
+Vector3d CP_Planning::getCoMvelRef() const
+{
+    return Vector3d(d_xc_, d_yc_, 0.0);
+}
+
+Vector3d CP_Planning::getCoMaccRef() const
+{
+    return Vector3d(w * w * (xc_ - px_d_), w * w * (yc_ - py_d_), 0.0);
 }
 
 double CP_Planning::CoM_dynamics(double cxi, double xc)
@@ -118,17 +142,11 @@ void CP_Planning::planWalking (MyGaitScheduler &gait_scheduler, JoyStickInterpre
 
     double vx = joyStick.vx_W; // forward walking velocity
     t_swing = gait_scheduler.tSwing;
-    // step_length must use the same formula as the Raibert foot placement heuristic
-    // (foot_placement.cpp: posDes_W = hipPos_W + 0.5*T*v_des + ...) so that the
-    // CP CoM reference advances by the same amount per step as the foot lands forward.
-    // Using vx/T here instead caused a 0.1 m/step CoM-vs-foot mismatch that accumulated.
-    this->step_length = 0.5 * t_swing * vx;
+    // The CoM reference advances step_length per swing, so the CoM moves at
+    // step_length / t_swing = vx. Must match FootPlacement::planFootstep(),
+    // which lands each foot stepLength = vx * tSwing ahead of the stance foot.
+    this->step_length = std::clamp(vx * t_swing, -max_step_length, max_step_length);
     auto phi = gait_scheduler.phi; // phase variable
-
-    if (this->step_length >= 0.1) // saturation
-    {
-        this->step_length = 0.1;
-    }
 
 
     // On every leg-state transition (edge-triggered: leg_state_ only differs
@@ -184,9 +202,17 @@ void CP_Planning::planWalking (MyGaitScheduler &gait_scheduler, JoyStickInterpre
     // a one-cycle-STALE leg_state_ means each foot only gets to step every
     // OTHER cycle while the CoM reference advances every cycle -- the CoM
     // reference permanently outruns the feet by a growing gap ("base moving
-    // faster than the foot step"). Kept synchronous: FootPlacement should
-    // read leg_state_ (via the gait_scheduler-driven updateFromRobot
-    // overload) for this path, not leg_state_swing_/phi_swing.
+    // faster than the foot step").
+    //
+    // Swing foot: one cycle behind the CoM phase, as in planWarmingUp(). During
+    // cycle k the ZMP stays where the CP started, i.e. over the side targeted
+    // in cycle k-1, so the free foot is oppositeLeg(leg state of cycle k-1).
+    // In steady state that equals the current leg state (states alternate);
+    // only the first cycle differs: no previous target, so no swing (DSt)
+    // while the CoM makes its first shift onto the stance foot.
+    if (gait_scheduler.legState != this->leg_state_)
+        leg_state_swing_ = oppositeLeg(this->leg_state_);
+    phi_swing = phi;
     this->leg_state_ = gait_scheduler.legState;
 
     return;

@@ -159,6 +159,15 @@ void UIctr::updateScene() {
     }
     custom_arrows_.clear();
 
+    for (const auto& sph : custom_spheres_) {
+        if (scn.ngeom < scn.maxgeom) {
+            const mjtNum size[3] = {sph.radius, sph.radius, sph.radius};
+            mjv_initGeom(&scn.geoms[scn.ngeom], mjGEOM_SPHERE, size, sph.pos, nullptr, sph.rgba);
+            scn.ngeom++;
+        }
+    }
+    custom_spheres_.clear();
+
     glfwGetFramebufferSize(window, &viewport.width, &viewport.height);
     mjr_render(viewport, &scn, &con);
 
@@ -399,6 +408,18 @@ void UIctr::addLine(const Eigen::Vector3d& from, const Eigen::Vector3d& to, cons
     custom_arrows_.push_back(arr);
 }
 
+void UIctr::addSphere(const Eigen::Vector3d& pos, double radius, const float rgba[4]) {
+    VisualSphere sph;
+    sph.pos[0] = pos(0); sph.pos[1] = pos(1); sph.pos[2] = pos(2);
+    sph.radius = radius;
+    if (rgba) {
+        for (int i = 0; i < 4; ++i) sph.rgba[i] = rgba[i];
+    } else {
+        sph.rgba[0] = 1.0f; sph.rgba[1] = 0.85f; sph.rgba[2] = 0.1f; sph.rgba[3] = 1.0f;
+    }
+    custom_spheres_.push_back(sph);
+}
+
 
 // ============================================================================
 // 2. Robot_Simulator Implementation
@@ -529,6 +550,22 @@ Eigen::VectorXd Robot_Simulator::getActuatedJointVel(int na) const {
         v_out(i) = mj_data->qvel[qvel_offset + i];
     }
     return v_out;
+}
+
+Eigen::Vector3d Robot_Simulator::getCoM() const {
+    if (!mj_model || !mj_data) return Eigen::Vector3d::Zero();
+    // subtree_com of the world body (0) is the CoM of every body in the model,
+    // i.e. the robot; it is updated by mj_forward / mj_step
+    return Eigen::Map<const Eigen::Vector3d>(mj_data->subtree_com);
+}
+
+void Robot_Simulator::addCoMMarker(const Eigen::Vector3d& com, const float rgba[4]) {
+    static const float kDefault[4] = {1.0f, 0.85f, 0.1f, 1.0f}; // yellow
+    const float* color = rgba ? rgba : kDefault;
+    const Eigen::Vector3d ground(com.x(), com.y(), 0.0);
+    addSphere(com, 0.025, color);
+    addLine(com, ground, color, 2.0);
+    addSphere(ground, 0.012, color);
 }
 
 RobotSensor Robot_Simulator::getRobotSensorValues() const {

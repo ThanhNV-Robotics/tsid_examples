@@ -115,12 +115,22 @@ public:
     void addArrow(const double pos[3], const double vec[3], double scale = 0.002, const float rgba[4] = nullptr, double width = 0.012);
     void addArrow(const Eigen::Vector3d& pos, const Eigen::Vector3d& vec, double scale = 0.002, const float rgba[4] = nullptr, double width = 0.012);
     void addLine(const Eigen::Vector3d& from, const Eigen::Vector3d& to, const float rgba[4] = nullptr, double widthPixels = 1.5);
-    void clearArrows() { custom_arrows_.clear(); }
+    void clearArrows() { custom_arrows_.clear(); custom_spheres_.clear(); }
+
+    // 3D sphere marker (e.g. CoM, target points); like arrows, it is drawn for
+    // one frame only, so add it again before every updateScene()
+    struct VisualSphere {
+        mjtNum pos[3];
+        mjtNum radius;
+        float rgba[4];
+    };
+    void addSphere(const Eigen::Vector3d& pos, double radius = 0.02, const float rgba[4] = nullptr);
 
     bool shouldClose() const { return window ? glfwWindowShouldClose(window) : true; }
 
 protected:
     std::vector<VisualArrow> custom_arrows_;
+    std::vector<VisualSphere> custom_spheres_;
     unsigned char* image_rgb_{nullptr};
     float* image_depth_{nullptr};
     FILE* file{nullptr};
@@ -196,6 +206,13 @@ public:
     void getActuatedState(Eigen::VectorXd& q_out, Eigen::VectorXd& v_out, int na = -1) const;
     Eigen::VectorXd getActuatedJointPos(int na = -1) const;
     Eigen::VectorXd getActuatedJointVel(int na = -1) const;
+
+    // Whole-robot centre of mass in the world frame, from MuJoCo (ground truth)
+    Eigen::Vector3d getCoM() const;
+
+    // Draw a CoM marker for the next frame: sphere at com, a vertical line to
+    // the floor (z = 0) and a dot at the ground projection
+    void addCoMMarker(const Eigen::Vector3d& com, const float rgba[4] = nullptr);
 
     // Read actuated joint states, base IMU and foot touch sensors (see common/data_type.h)
     RobotSensor getRobotSensorValues() const;

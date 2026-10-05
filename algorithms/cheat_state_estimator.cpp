@@ -17,7 +17,7 @@ Cheat_StateEstimator::Cheat_StateEstimator(const mjModel* model, const mjData* d
     }
 }
 
-RobotState Cheat_StateEstimator::estimate(const RobotSensor& sensor) const {
+RobotState Cheat_StateEstimator::estimate(const RobotSensor& sensor) {
     RobotState state;
     state.qj = sensor.actuator_state.qj;
     state.dq_j = sensor.actuator_state.dqj;
@@ -28,7 +28,10 @@ RobotState Cheat_StateEstimator::estimate(const RobotSensor& sensor) const {
     const double Fn_R = sensor.right_touch_sensor;
     state.contact_flags = {Fn_L > contact_force_level, Fn_R > contact_force_level};
 
-    if (!mj_data || base_qpos_adr < 0) return state;
+    if (!mj_data || base_qpos_adr < 0) {
+        this->robot_state_ = state;
+        return state;
+    }
 
     const mjtNum* qpos = mj_data->qpos + base_qpos_adr;
     const mjtNum* qvel = mj_data->qvel + base_qvel_adr;
@@ -40,5 +43,6 @@ RobotState Cheat_StateEstimator::estimate(const RobotSensor& sensor) const {
     state.vb_W = Eigen::Map<const Vector3d>(qvel);
     state.wb_W = state.quat_b_W * Eigen::Map<const Vector3d>(qvel + 3);
 
+    this->robot_state_ = state;
     return state;
 }

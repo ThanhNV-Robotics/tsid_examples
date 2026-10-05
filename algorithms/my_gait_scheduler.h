@@ -5,7 +5,7 @@
 
 #include "data_type.h"
 #include "joystick_interpreter.h"
-
+#include "cheat_state_estimator.h"
 class MyGaitScheduler {
 public:
     bool isIni{false};
@@ -22,7 +22,7 @@ public:
     // config/step_planning_cf.yaml
     MyGaitScheduler(const std::string &yamlPath, double dtIn);
     MyGaitScheduler(const double Tswing, double dt);
-    void step();
+    void step(Cheat_StateEstimator &state_estimator);
     void stop();
 	void start(JoyStickInterpreter &joystick);
     Eigen::VectorXd FLest,FRest;

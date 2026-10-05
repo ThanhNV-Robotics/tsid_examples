@@ -186,7 +186,7 @@ int main(int argc, char **argv) {
   const double simulation_time = 20.0;
   RobotSensor robot_sensors;
 
-  while (!sim.shouldClose() && sim.time() < simulation_time) {
+  while (!sim.shouldClose()) {
     double simstart = sim.time();
 
     // Step physics at ~60 Hz visual frame rate
@@ -240,6 +240,7 @@ int main(int argc, char **argv) {
     }
     tau_plot_left->render();
     tau_plot_right->render();
+    sim.addCoMMarker(sim.getCoM()); // yellow: CoM and its ground projection
     sim.updateScene();
   }
 

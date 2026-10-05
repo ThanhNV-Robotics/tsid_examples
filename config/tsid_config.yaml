@@ -3,30 +3,45 @@ contact_tasks: # List of 6D rigid contacts
     mu: 0.8 # friction coefficient for friction cone constraint
     f_min: 0.0 # minimum normal contact force
     f_max: 1000.0 # maximum normal contact force
-    kp: 10.0 # proportional gain for contact acceleration
-    weight: 1e-5 # force regularization weight (w_force_reg)
+    kp: 100.0 # proportional gain for contact acceleration
+    kd: 20.0 # derivative gain for contact acceleration (default 2*sqrt(kp) if omitted)
+    weight: 1e-3 # force regularization weight (w_force_reg)
     sole_z: -0.040 # sole z offset in ankle link frame
 
   - contact_frame: "right_ankle_pitch_link"
     mu: 0.8 # friction coefficient for friction cone constraint
     f_min: 0.0 # minimum normal contact force
     f_max: 1000.0 # maximum normal contact force
-    kp: 10.0 # proportional gain for contact acceleration
-    weight: 1e-5 # force regularization weight (w_force_reg)
+    kp: 100.0 # proportional gain for contact acceleration
+    kd: 20.0 # derivative gain for contact acceleration (default 2*sqrt(kp) if omitted)
+    weight: 1e-3 # force regularization weight (w_force_reg)
     sole_z: -0.040 # sole z offset in ankle link frame
 
 com_task:
   mask: [1.0, 1.0, 0.0] # selected axes to control: [x, y, z] (1=active, 0=unconstrained)
   kp: 50.0 # proportional gain
+  weight: 5.5 # task weight in the QP cost function
+  priority: 1 # priority level (1 = soft motion task)
+
+base_orientation_task: # keep the base link upright
+  frame: "link0_torso" # base link frame
+  mask: [0, 0, 0, 1, 1, 0] # [x, y, z, roll, pitch, yaw] in the base frame; default: roll and pitch only
+  kp: 10.0 # proportional gain (kd defaults to 2*sqrt(kp))
   weight: 1.0 # task weight in the QP cost function
   priority: 1 # priority level (1 = soft motion task)
+
+swing_foot_task: # tracks the swing foot (contact frame) while it is in the air
+  kp: 300.0 # proportional gain (kd defaults to 2*sqrt(kp))
+  weight: 10.0 # task weight in the QP cost function
+  priority: 1 # priority level (1 = soft motion task)
+  contact_transition_time: 0.15 # [s] the lifting foot's contact force is ramped to zero over this time before removal
 
 actuation_bounds_task:
   weight: 1.0
   priority: 0 # priority 0 = hard constraint in TSID
 
 posture_task: # joint space control task
-  weight: 0.1 # task weight in the QP cost function
+  weight: 0.001 # task weight in the QP cost function
   priority: 1
   joint_gain: # joint kp and kd gains 
     left_hip_pitch_joint:
@@ -46,7 +61,7 @@ posture_task: # joint space control task
       kp: 120.0
 
     left_ankle_roll_joint:  
-      kd: 0.6 # 
+      kd: 1.6 # 
       kp: 30.0
 
     left_ankle_pitch_joint:  
@@ -70,11 +85,26 @@ posture_task: # joint space control task
       kp: 120.0
 
     right_ankle_roll_joint:  
-      kd: 0.6 # 
+      kd: 1.6 # 
       kp: 30.0
 
     right_ankle_pitch_joint:  
       kd: 0.6 # 
       kp: 30.0
 
+foot_placement: # swing-foot planner (algorithms/foot_placement.h); every key is optional
+  stepHeight: 0.05 # swing apex height above the liftoff height [m]
+  stance_width: 0.334 # nominal lateral distance between the feet [m] (matches hip_width in the demos)
+  x_offset: 0.0 # body-frame forward landing offset [m] (Raibert mode only)
+  y_offset: 0.0 # body-frame lateral landing offset, positive = inward [m] (Raibert mode only)
+  z_offset: 0.0 # touchdown stretch: landing target relative to the ground [m]; < 0 aims below the ground so the foot surely touches down
+  kp_vx: 0.0 # Raibert feedback gain on the x velocity error
+  kp_vy: 0.0 # Raibert feedback gain on the y velocity error
+  kp_wz: 0.0 # Raibert feedback gain on the yaw-rate error
+  max_step_length: 0.1 # |step length| limit [m]; step length = vx * t_swing
+  left_foot_frame: "left_ankle_pitch_link" # swing-foot frames, same as the contact frames
+  right_foot_frame: "right_ankle_pitch_link"
 
+walking_command: # joystick command used by the walking demos
+  vx: 0.0 # forward speed [m/s]; 0 = step in place
+  ramp_time: 1.0 # time to ramp the speed command from 0 to vx [s]

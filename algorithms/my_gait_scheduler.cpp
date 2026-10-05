@@ -41,9 +41,17 @@ MyGaitScheduler::MyGaitScheduler(const double Tswing, double dt)
     touchDown = false;
 }
 
-void MyGaitScheduler::step()
+void MyGaitScheduler::step(Cheat_StateEstimator &state_estimator)
 {
     double dPhi{0};
+    // // update leg_state from contact flags of state_estimator
+    // const RobotState robot_state = state_estimator.getState();
+    // if (robot_state.contact_flags[0] == true  &&  robot_state.contact_flags[0] == true)
+    // {
+    //     legState = LegState::DSt;
+    // }
+    // else if (robot_state.contact_flags[0] == true) legState = LegState::LSt;
+    // else if (robot_state.contact_flags[1] == true) legState = LegState::RSt;
 
     if (motionState == MotionState::WALK_TO_STAND)
     {

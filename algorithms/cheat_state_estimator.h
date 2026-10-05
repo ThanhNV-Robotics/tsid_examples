@@ -12,9 +12,14 @@ class Cheat_StateEstimator {
 public:
     Cheat_StateEstimator(const mjModel* model, const mjData* data);
 
-    RobotState estimate(const RobotSensor& sensor) const;
+    // Not const: stores the result as the latest state
+    RobotState estimate(const RobotSensor& sensor);
+
+    // Latest state computed by estimate()
+    const RobotState& getState() const { return robot_state_; }
 
 private:
+    RobotState robot_state_;
     const double contact_force_level = 20; // N
     const mjModel* mj_model{nullptr};
     const mjData* mj_data{nullptr};

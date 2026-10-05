@@ -1,4 +1,5 @@
 #include "parse_tsid_tasks.h"
+#include <tsid/math/utils.hpp>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -286,11 +287,14 @@ void tsidTaskParser::setTaskconfig(tsid::InverseDynamicsFormulationAccForce &tsi
 {
     parseContactMetadata(robot);
     m_com_task.reset();
+    m_base_orientation_task.reset();
     m_actuation_bounds_task.reset();
     m_posture_task.reset();
 
     setupContacts(tsid, robot);
+    setupSwingTasks(robot);
     setupComTask(tsid, robot);
+    setupBaseOrientationTask(tsid, robot);
     setupActuationBoundsTask(tsid, robot);
     setupPostureTask(tsid, robot);
 
@@ -313,6 +317,90 @@ void tsidTaskParser::setupContacts(tsid::InverseDynamicsFormulationAccForce &tsi
                   << "' (kp=" << info.kp << ", kd=" << info.kd << ", w_force_reg=" << info.w_force_reg << ")"
                   << std::endl;
     }
+}
+
+void tsidTaskParser::setupSwingTasks(tsid::robots::RobotWrapper &robot)
+{
+    // One swing task per contact foot, created here but only added to the QP
+    // while that foot is in the air (startSwing / endSwing)
+    if (!m_config["swing_foot_task"]) {
+        return;
+    }
+    const auto &node = m_config["swing_foot_task"];
+    const double kp = node["kp"] ? node["kp"].as<double>() : 300.0;
+    const double kd = node["kd"] ? node["kd"].as<double>() : (2.0 * std::sqrt(kp));
+    if (node["weight"]) m_swing_weight = node["weight"].as<double>();
+    if (node["priority"]) m_swing_priority = node["priority"].as<unsigned int>();
+    if (node["contact_transition_time"]) m_contact_transition_time = node["contact_transition_time"].as<double>();
+
+    for (auto &info : m_contact_infos) {
+        info.swing_task = std::make_shared<tsid::tasks::TaskSE3Equality>("swing_" + info.frame_name, robot,
+                                                                         info.frame_name);
+        info.swing_task->Kp(kp * Eigen::VectorXd::Ones(6));
+        info.swing_task->Kd(kd * Eigen::VectorXd::Ones(6));
+        info.swinging = false;
+    }
+    std::cout << "[tsidTaskParser] Created swing foot tasks (kp=" << kp << ", kd=" << kd << ", weight="
+              << m_swing_weight << ", contact transition " << m_contact_transition_time << " s)" << std::endl;
+}
+
+tsidTaskParser::ContactInfo *tsidTaskParser::findContactInfo(const std::string &frame_name)
+{
+    for (auto &info : m_contact_infos) {
+        if (info.frame_name == frame_name) return &info;
+    }
+    return nullptr;
+}
+
+void tsidTaskParser::startSwing(tsid::InverseDynamicsFormulationAccForce &tsid, const std::string &frame_name)
+{
+    ContactInfo *info = findContactInfo(frame_name);
+    if (!info || !info->contact || !info->swing_task || info->swinging) return;
+    tsid.removeRigidContact(info->contact->name(), m_contact_transition_time);
+    tsid.addMotionTask(*info->swing_task, m_swing_weight, m_swing_priority);
+    info->swinging = true;
+}
+
+void tsidTaskParser::endSwing(tsid::InverseDynamicsFormulationAccForce &tsid, const std::string &frame_name,
+                              const pinocchio::Data &data)
+{
+    ContactInfo *info = findContactInfo(frame_name);
+    if (!info || !info->contact || !info->swing_task || !info->swinging) return;
+    tsid.removeTask(info->swing_task->name());
+    // TSID ramps the max normal force to ~0 while unloading a contact and never
+    // restores it; without this the landed foot could carry (almost) no load
+    info->contact->setMaxNormalForce(info->f_max);
+    info->contact->setReference(m_robot->framePosition(data, info->frame_id));
+    tsid.addRigidContact(*info->contact, info->w_force_reg);
+    info->swinging = false;
+}
+
+void tsidTaskParser::setSwingReference(const std::string &frame_name, const Eigen::Vector3d &pos,
+                                       const Eigen::Vector3d &vel, const Eigen::Vector3d &acc,
+                                       const Eigen::Matrix3d &R_W)
+{
+    ContactInfo *info = findContactInfo(frame_name);
+    if (!info || !info->swing_task) return;
+    // SE3 sample: 12 values (translation + rotation matrix), 6 derivatives;
+    // TSID expects the reference velocity/acceleration in world-aligned axes
+    tsid::trajectories::TrajectorySample sample(12, 6);
+    Eigen::VectorXd pos_vec(12);
+    tsid::math::SE3ToVector(pinocchio::SE3(R_W, pos), pos_vec);
+    Eigen::VectorXd vel6 = Eigen::VectorXd::Zero(6), acc6 = Eigen::VectorXd::Zero(6);
+    vel6.head<3>() = vel;
+    acc6.head<3>() = acc;
+    sample.setValue(pos_vec);
+    sample.setDerivative(vel6);
+    sample.setSecondDerivative(acc6);
+    info->swing_task->setReference(sample);
+}
+
+bool tsidTaskParser::isSwinging(const std::string &frame_name) const
+{
+    for (const auto &info : m_contact_infos) {
+        if (info.frame_name == frame_name) return info.swinging;
+    }
+    return false;
 }
 
 void tsidTaskParser::setupComTask(tsid::InverseDynamicsFormulationAccForce &tsid, tsid::robots::RobotWrapper &robot)
@@ -343,6 +431,53 @@ void tsidTaskParser::setupComTask(tsid::InverseDynamicsFormulationAccForce &tsid
     tsid.addMotionTask(*m_com_task, weight, priority);
     std::cout << "[tsidTaskParser] Added CoM task (kp=" << kp << ", kd=" << kd 
               << ", weight=" << weight << ", priority=" << priority << ")" << std::endl;
+}
+
+void tsidTaskParser::setupBaseOrientationTask(tsid::InverseDynamicsFormulationAccForce &tsid, tsid::robots::RobotWrapper &robot)
+{
+    if (!m_config["base_orientation_task"]) {
+        return;
+    }
+
+    const auto &node = m_config["base_orientation_task"];
+    const std::string frame = node["frame"] ? node["frame"].as<std::string>() : "link0_torso";
+    if (!robot.model().existFrame(frame)) {
+        std::cerr << "[tsidTaskParser] Warning: base frame '" << frame
+                  << "' not found, base orientation task skipped" << std::endl;
+        return;
+    }
+    m_base_frame_id = robot.model().getFrameId(frame);
+
+    double kp = node["kp"] ? node["kp"].as<double>() : 100.0;
+    double kd = node["kd"] ? node["kd"].as<double>() : (2.0 * std::sqrt(kp));
+    double weight = node["weight"] ? node["weight"].as<double>() : 1.0;
+    unsigned int priority = node["priority"] ? node["priority"].as<unsigned int>() : 1;
+
+    // Mask over [x, y, z, roll, pitch, yaw] of the frame error, expressed in the
+    // base frame; default keeps only roll and pitch (base upright, position and
+    // heading free)
+    Eigen::VectorXd mask(6);
+    mask << 0, 0, 0, 1, 1, 0;
+    if (node["mask"] && node["mask"].IsSequence()) {
+        std::vector<double> m = node["mask"].as<std::vector<double>>();
+        if (m.size() == 6) {
+            mask = Eigen::Map<Eigen::VectorXd>(m.data(), 6);
+        } else {
+            std::cerr << "[tsidTaskParser] Warning: base_orientation_task mask needs 6 values, using default" << std::endl;
+        }
+    }
+
+    m_base_orientation_task = std::make_shared<tsid::tasks::TaskSE3Equality>("task-base-orientation", robot, frame);
+    m_base_orientation_task->Kp(kp * Eigen::VectorXd::Ones(6));
+    m_base_orientation_task->Kd(kd * Eigen::VectorXd::Ones(6));
+    m_base_orientation_task->setMask(mask);
+    // Upright with zero yaw until updateBaseOrientationReference() sets the actual heading
+    m_base_orientation_task->setReference(pinocchio::SE3::Identity());
+
+    tsid.addMotionTask(*m_base_orientation_task, weight, priority);
+    std::cout << "[tsidTaskParser] Added base orientation task on '" << frame << "' (kp=" << kp
+              << ", kd=" << kd << ", weight=" << weight << ", priority=" << priority
+              << ", mask=[" << mask.transpose() << "])" << std::endl;
 }
 
 void tsidTaskParser::setupActuationBoundsTask(tsid::InverseDynamicsFormulationAccForce &tsid, tsid::robots::RobotWrapper &robot)
@@ -495,12 +630,24 @@ void tsidTaskParser::updateContactReferences(const pinocchio::Data &data)
         std::cerr << "[tsidTaskParser] Error: RobotWrapper is null in updateContactReferences!" << std::endl;
         return;
     }
+    updateBaseOrientationReference(data);
     for (auto &info : m_contact_infos) {
         if (info.contact) {
             info.contact->setReference(m_robot->framePosition(data, info.frame_id));
             std::cout << "[tsidTaskParser] Set initial reference for contact '" << info.frame_name << "'" << std::endl;
         }
     }
+}
+
+void tsidTaskParser::updateBaseOrientationReference(const pinocchio::Data &data)
+{
+    if (!m_robot || !m_base_orientation_task) return;
+    // Upright (zero roll and pitch) with the current yaw, so the masked yaw
+    // does not leak into the roll/pitch error; translation is masked out
+    const pinocchio::SE3 base = m_robot->framePosition(data, m_base_frame_id);
+    const double yaw = std::atan2(base.rotation()(1, 0), base.rotation()(0, 0));
+    const pinocchio::SE3 ref(Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()).toRotationMatrix(), base.translation());
+    m_base_orientation_task->setReference(ref);
 }
 
 std::shared_ptr<tsid::contacts::Contact6d> tsidTaskParser::getContact(const std::string &frame_name) const
