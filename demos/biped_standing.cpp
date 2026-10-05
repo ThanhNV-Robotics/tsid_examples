@@ -64,10 +64,6 @@ int main(int argc, char **argv) {
   // 2. TSID Robot Wrapper
   // ------------------------------------------------------------------------
   std::vector<std::string> package_dirs;
-  // The URDF has no root joint (its floating joint is commented out), so the
-  // free-flyer must be added here. Without it TSID assumes the torso is bolted
-  // to the world and only computes the torques needed to swing the legs in
-  // the air -- far too little to carry the body weight through the feet.
   auto robot_ptr = std::make_shared<RobotWrapper>(URDF_PATH, package_dirs, pinocchio::JointModelFreeFlyer(), false);
   RobotWrapper &robot = *robot_ptr;
   std::printf("[TSID] Loaded URDF '%s'\n", URDF_PATH.c_str());
@@ -75,16 +71,14 @@ int main(int argc, char **argv) {
               robot.na());
 
   // Initialize tsidTaskParser with YAML config and RobotWrapper pointer early
-  tsidTaskParser task_parser(TSID_CONFIG_PATH, robot_ptr);
+  tsidTaskParser task_parser(TSID_CONFIG_PATH, robot_ptr, URDF_PATH);
 
   // ------------------------------------------------------------------------
-  // 3. Compile Pinocchio model and data for standing IK
+  // 3. Pinocchio model and data for standing IK
   // ------------------------------------------------------------------------
-  pinocchio::Model pin_model;
-  pinocchio::urdf::buildModel(URDF_PATH, pin_model);
+  // Reuse the RobotWrapper's model (with free-flyer); only a Data is needed
+  const pinocchio::Model &pin_model = robot.model();
   pinocchio::Data pin_data(pin_model);
-  std::printf("[Pinocchio] Model compiled from '%s' (nq=%d, nv=%d)\n",
-              URDF_PATH.c_str(), pin_model.nq, pin_model.nv);
 
   const double hip_width = 0.27;
   const double init_base_height = 0.78;
@@ -93,7 +87,7 @@ int main(int argc, char **argv) {
   std::cout << "Target Initial Standing Configuration:\n" << qa_init.transpose() << std::endl;
 
   // Apply initial slightly bent configuration to MuJoCo to avoid kinematic singularity at start
-  VectorXd q_bent = pinocchio::neutral(pin_model);
+  VectorXd q_bent = VectorXd::Zero(robot.na());
   q_bent[3] = 0.1;    // left knee
   q_bent[9] = 0.1;    // right knee
   q_bent[0] = -0.08;  // left hip pitch
@@ -102,21 +96,8 @@ int main(int argc, char **argv) {
   q_bent[11] = -0.08; // right ankle
 
   // Place the base so that all parsed contact soles rest on the floor
-  VectorXd q(robot.nq());
+  VectorXd q = task_parser.computeGroundedConfiguration(q_bent);
   VectorXd v = VectorXd::Zero(robot.nv());
-  
-  q = pinocchio::neutral(robot.model());
-  q.tail(robot.na()) = q_bent;
-  {
-    pinocchio::Data d_tmp(robot.model());
-    pinocchio::framesForwardKinematics(robot.model(), d_tmp, q);
-    double foot_z = 1e9;
-    for (const auto &info : task_parser.getContactInfos()) {
-      foot_z = std::min(foot_z, d_tmp.oMf[info.frame_id].translation().z());
-    }
-    const double sole_z = task_parser.getSoleZ();
-    q[2] = -(foot_z + sole_z) + 1e-3;
-  }
   VectorXd qpos_mj(sim.nq());
   qpos_mj << q.head<3>(), 1.0, 0.0, 0.0, 0.0, q_bent; // MuJoCo quat (w,x,y,z)
   sim.setInitConfiguration(qpos_mj);

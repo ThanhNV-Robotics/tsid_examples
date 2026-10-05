@@ -2,10 +2,8 @@
 
 #include <Eigen/Dense>
 #include <string>
-#include "useful_math.h"
 
 #include "data_type.h"
-#include "robot_wrapper.h"
 #include "joystick_interpreter.h"
 
 class MyGaitScheduler {
@@ -23,7 +21,8 @@ public:
     // yamlPath's "gait_scheduler:" block supplies tSwing -- see
     // config/step_planning_cf.yaml
     MyGaitScheduler(const std::string &yamlPath, double dtIn);
-    void step(JoyStickInterpreter &joyStick);
+    MyGaitScheduler(const double Tswing, double dt);
+    void step();
     void stop();
 	void start(JoyStickInterpreter &joystick);
     Eigen::VectorXd FLest,FRest;

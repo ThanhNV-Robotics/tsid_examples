@@ -22,6 +22,12 @@ RobotState Cheat_StateEstimator::estimate(const RobotSensor& sensor) const {
     state.qj = sensor.actuator_state.qj;
     state.dq_j = sensor.actuator_state.dqj;
 
+    // Contact flags [left, right]: a foot is in contact when the normal force
+    // on its sole touch sensor exceeds contact_force_level
+    const double Fn_L = sensor.left_touch_sensor;
+    const double Fn_R = sensor.right_touch_sensor;
+    state.contact_flags = {Fn_L > contact_force_level, Fn_R > contact_force_level};
+
     if (!mj_data || base_qpos_adr < 0) return state;
 
     const mjtNum* qpos = mj_data->qpos + base_qpos_adr;

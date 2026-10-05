@@ -15,6 +15,7 @@ public:
     RobotState estimate(const RobotSensor& sensor) const;
 
 private:
+    const double contact_force_level = 20; // N
     const mjModel* mj_model{nullptr};
     const mjData* mj_data{nullptr};
     int base_qpos_adr{-1}; // qpos address of the free joint, -1 if fixed base

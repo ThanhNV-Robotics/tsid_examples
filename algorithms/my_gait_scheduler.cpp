@@ -27,15 +27,22 @@ MyGaitScheduler::MyGaitScheduler(const std::string &yamlPath, double dtIn)
     enableNextStep= false;
     touchDown = false;
 }
-
-void MyGaitScheduler::step(JoyStickInterpreter &joyStick)
+MyGaitScheduler::MyGaitScheduler(const double Tswing, double dt)
 {
-    // Eigen::VectorXd tauAll;
-    // tauAll = Eigen::VectorXd::Zero(model_nv);
-    // tauAll.block(6, 0, model_nv - 6, 1) = torJoint; //
-    // FLest = -pseudoInv_SVD(J_l * dyn_M.inverse() * J_l.transpose()) * (J_l * dyn_M.inverse() * (tauAll - dyn_Non) + dJ_l * dq);
-    // FRest = -pseudoInv_SVD(J_r * dyn_M.inverse() * J_r.transpose()) * (J_r * dyn_M.inverse() * (tauAll - dyn_Non) + dJ_r * dq);
+    this->tSwing = Tswing;
+    this->dt = dt;
+    phi = 0;
+    isIni = false;
+	firstleg=LegState::LSt;
+    legState=LegState::DSt;
+    legStateNext=firstleg;
+    motionState=MotionState::STAND;
+    enableNextStep= false;
+    touchDown = false;
+}
 
+void MyGaitScheduler::step()
+{
     double dPhi{0};
 
     if (motionState == MotionState::WALK_TO_STAND)
@@ -87,10 +94,6 @@ void MyGaitScheduler::step(JoyStickInterpreter &joyStick)
         }
     }
 
-    // if (legState == DataBus::LSt && FRest[2] >= 280 && phi >= 0.6)
-    // if (legState == DataBus::LSt && ((FRest[2] >= 280 && phi >= 0.6) || (phi >=0.99)))
-    // if (legState == DataBus::LSt && phi >= 0.9)
-
     if (legState == LegState::LSt && phi >= 1.0)
     {
         if (enableNextStep)
@@ -103,9 +106,7 @@ void MyGaitScheduler::step(JoyStickInterpreter &joyStick)
             stepNumCur++;
         }
     }
-    // else if (legState == DataBus::RSt && FLest[2] >= 280 && phi >= 0.6)
-    // else if (legState == DataBus::RSt && ((FLest[2] >= 280 && phi >= 0.6) || (phi >=0.99)))
-    // else if (legState == DataBus::RSt && phi >= 0.9)
+
     else if (legState == LegState::RSt && phi >= 1.0)
     {
         if (enableNextStep)

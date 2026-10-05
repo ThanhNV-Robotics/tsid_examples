@@ -23,13 +23,22 @@ public:
     struct ContactInfo {
         std::string frame_name;
         pinocchio::FrameIndex frame_id;
-        double sole_z = -0.040;
+        double sole_z = -0.040;                  // mean z of the contact points in the frame
+        Eigen::Matrix3Xd contact_points;         // 3x4 sole corners in the contact frame
+        Eigen::Vector3d contact_normal{0.0, 0.0, 1.0};
+        std::string points_source;               // "yaml", "urdf" or "default"
+        double mu = 0.8, f_min = 0.0, f_max = 1000.0;
+        double kp = 10.0, kd = 2.0 * std::sqrt(10.0);
+        double w_force_reg = 1e-5;
         std::shared_ptr<tsid::contacts::Contact6d> contact = nullptr;
     };
 
     // Constructors
     tsidTaskParser(const std::string &yaml_config_path, const std::string &urdf_path);
-    tsidTaskParser(const std::string &yaml_config_path, std::shared_ptr<tsid::robots::RobotWrapper> robot);
+    // urdf_path is optional; when given, contact sole corners can be read from the
+    // URDF collision geometry (see contact_geometry in the YAML)
+    tsidTaskParser(const std::string &yaml_config_path, std::shared_ptr<tsid::robots::RobotWrapper> robot,
+                   const std::string &urdf_path = "");
 
     // Build and register all tasks into the TSID formulation
     void setTaskconfig(tsid::InverseDynamicsFormulationAccForce &tsid);
@@ -43,6 +52,11 @@ public:
     std::shared_ptr<tsid::contacts::Contact6d> getContact(const std::string &frame_name) const;
     double getSoleZ() const;
     double getSoleZ(const std::string &frame_name) const;
+
+    // Full free-flyer configuration [base pos, quat (x,y,z,w), qj] with the base
+    // upright at x = y = 0 and its height chosen so that the lowest contact
+    // point of all contacts sits `clearance` above the floor (z = 0)
+    Eigen::VectorXd computeGroundedConfiguration(const Eigen::VectorXd &qj, double clearance = 1e-3) const;
 
     // Helper: compute average position of contact frames in world coordinates
     Eigen::Vector3d computeSupportCenter(const pinocchio::Data &data, const tsid::robots::RobotWrapper &robot) const;
@@ -69,6 +83,8 @@ private:
     void loadYaml();
     void initRobotWrapper();
     void parseContactMetadata(const tsid::robots::RobotWrapper &robot);
+    bool soleCornersFromUrdf(const std::string &link_name, const Eigen::Vector3d &normal,
+                             Eigen::Matrix3Xd &corners) const;
     void setupContacts(tsid::InverseDynamicsFormulationAccForce &tsid, tsid::robots::RobotWrapper &robot);
     void setupComTask(tsid::InverseDynamicsFormulationAccForce &tsid, tsid::robots::RobotWrapper &robot);
     void setupActuationBoundsTask(tsid::InverseDynamicsFormulationAccForce &tsid, tsid::robots::RobotWrapper &robot);

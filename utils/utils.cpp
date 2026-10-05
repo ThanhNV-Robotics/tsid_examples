@@ -76,34 +76,39 @@ IkRes computeIK_Leg(const pinocchio::Model &model, pinocchio::Data &data,
   const pinocchio::SE3 oMdesL(Rdes_L, Pdes_L);
   const pinocchio::SE3 oMdesR(Rdes_R, Pdes_R);
 
-  // Initial guess
+  // Works with fixed-base and free-flyer models. With a free-flyer the base is
+  // held at the origin (identity orientation) and only the joints are solved,
+  // so the desired foot poses are relative to the base in both cases.
+  const bool floating = model.njoints > 1 && model.joints[1].shortname() == "JointModelFreeFlyer";
+  const int q_off = floating ? 7 : 0;
+  const int v_off = floating ? 6 : 0;
+  const int nj = model.nv - v_off; // number of actuated joints
+
+  // Initial guess (slightly bent knees to avoid the straight-leg singularity)
   Eigen::VectorXd qIk = pinocchio::neutral(model);
-  qIk[3] = 0.1;    // left knee
-  qIk[9] = 0.1;    // right knee
-  qIk[0] = -0.08;  // left hip pitch
-  qIk[6] = -0.08;  // right hip pitch
-  qIk[5] = -0.05;  // left hip roll
-  qIk[11] = -0.08; // right hip roll
+  qIk[q_off + 0] = -0.08;  // left hip pitch
+  qIk[q_off + 3] = 0.1;    // left knee
+  qIk[q_off + 5] = -0.05;  // left ankle pitch
+  qIk[q_off + 6] = -0.08;  // right hip pitch
+  qIk[q_off + 9] = 0.1;    // right knee
+  qIk[q_off + 11] = -0.08; // right ankle pitch
 
   // Resolve foot joint indices if not provided
-  pinocchio::JointIndex J_Idx_l = model.getJointId("left_ankle_pitch_joint");
-  pinocchio::JointIndex J_Idx_r = model.getJointId("right_ankle_pitch_joint");
+  pinocchio::JointIndex J_Idx_l = left_foot_id ? left_foot_id : model.getJointId("left_ankle_pitch_joint");
+  pinocchio::JointIndex J_Idx_r = right_foot_id ? right_foot_id : model.getJointId("right_ankle_pitch_joint");
 
   const double eps = 1e-4;
   const int IT_MAX = 100;
   const double DT = 7e-1;
   const double damp = 5e-3;
-  Eigen::MatrixXd JL(6, model.nv);
-  Eigen::MatrixXd JR(6, model.nv);
-  Eigen::MatrixXd JCompact(12, model.nv);
-  JL.setZero();
-  JR.setZero();
-  JCompact.setZero();
+  Eigen::MatrixXd JL = Eigen::MatrixXd::Zero(6, model.nv);
+  Eigen::MatrixXd JR = Eigen::MatrixXd::Zero(6, model.nv);
+  Eigen::MatrixXd JCompact = Eigen::MatrixXd::Zero(12, nj); // joint columns only
 
   bool success = false;
   Eigen::Matrix<double, 6, 1> errL, errR;
   Eigen::Matrix<double, 12, 1> errCompact;
-  Eigen::VectorXd v(model.nv);
+  Eigen::VectorXd v = Eigen::VectorXd::Zero(model.nv); // base part stays zero
 
   int itr_count = 0;
   for (itr_count = 0; itr_count < IT_MAX; itr_count++) {
@@ -124,21 +129,17 @@ IkRes computeIK_Leg(const pinocchio::Model &model, pinocchio::Data &data,
     pinocchio::computeJointJacobian(model, data, qIk, J_Idx_r,
                                     JR); // JR in joint frame
 
-    Eigen::MatrixXd W = Eigen::MatrixXd::Identity(model.nv, model.nv);
-
     pinocchio::Data::Matrix6 JlogL;
     pinocchio::Data::Matrix6 JlogR;
     pinocchio::Jlog6(iMdL.inverse(), JlogL);
     pinocchio::Jlog6(iMdR.inverse(), JlogR);
-    JL = -JlogL * JL;
-    JR = -JlogR * JR;
-    JCompact.block(0, 0, 6, model.nv) = JL;
-    JCompact.block(6, 0, 6, model.nv) = JR;
+    JCompact.topRows(6) = -JlogL * JL.rightCols(nj);
+    JCompact.bottomRows(6) = -JlogR * JR.rightCols(nj);
 
     Eigen::Matrix<double, 12, 12> JJt;
-    JJt.noalias() = JCompact * W * JCompact.transpose();
+    JJt.noalias() = JCompact * JCompact.transpose();
     JJt.diagonal().array() += damp;
-    v.noalias() = -W * JCompact.transpose() * JJt.ldlt().solve(errCompact);
+    v.tail(nj).noalias() = -JCompact.transpose() * JJt.ldlt().solve(errCompact);
     qIk = pinocchio::integrate(model, qIk, v * DT);
   }
 
@@ -146,7 +147,7 @@ IkRes computeIK_Leg(const pinocchio::Model &model, pinocchio::Data &data,
   res.err = errCompact;
   res.itr = itr_count;
   res.status = success ? 0 : -1;
-  res.jointPosRes = qIk;
+  res.jointPosRes = qIk.tail(nj); // joint angles only
   return res;
 }
 

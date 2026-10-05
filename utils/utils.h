@@ -39,6 +39,10 @@ void loadMjXml(mjModel *&m, mjData *&d, const string xml_path);
 void printMjModelInfo(mjModel *m);
 void setRobotInitConfiguration(mjModel *&m, mjData *&d, Eigen::VectorXd q0);
 
+// Damped least-squares IK placing both ankle-pitch frames at the desired poses
+// (relative to the base). Accepts fixed-base or free-flyer models; with a
+// free-flyer the base is held at the origin. jointPosRes holds only the
+// actuated joint angles.
 IkRes computeIK_Leg(const pinocchio::Model &model, pinocchio::Data &data,
                     const Eigen::Matrix3d &Rdes_L,
                     const Eigen::Vector3d &Pdes_L,

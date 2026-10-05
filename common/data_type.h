@@ -77,6 +77,9 @@ struct RobotState
     Vector3d vb_W = Vector3d::Zero(); // base linear velocity, w.r.t world frame
     Vector3d wb_W = Vector3d::Zero(); // base angular velocity, w.r.t world frame
     VectorXd dq_j ;
+
+    // contact state
+    std::vector<bool> contact_flags {false, false};
 };
 
 enum LegState

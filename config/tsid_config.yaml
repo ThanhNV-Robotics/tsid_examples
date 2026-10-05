@@ -76,3 +76,5 @@ posture_task: # joint space control task
     right_ankle_pitch_joint:  
       kd: 0.6 # 
       kp: 30.0
+
+

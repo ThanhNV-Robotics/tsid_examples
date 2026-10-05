@@ -1,6 +1,10 @@
 #include "parse_tsid_tasks.h"
-#include <iostream>
 #include <cmath>
+#include <iostream>
+#include <limits>
+#include <pinocchio/algorithm/frames.hpp>
+#include <pinocchio/algorithm/joint-configuration.hpp>
+#include <urdf_parser/urdf_parser.h>
 
 tsidTaskParser::tsidTaskParser(const std::string &yaml_config_path, const std::string &urdf_path)
     : m_yaml_path(yaml_config_path), m_urdf_path(urdf_path)
@@ -12,8 +16,9 @@ tsidTaskParser::tsidTaskParser(const std::string &yaml_config_path, const std::s
     }
 }
 
-tsidTaskParser::tsidTaskParser(const std::string &yaml_config_path, std::shared_ptr<tsid::robots::RobotWrapper> robot)
-    : m_yaml_path(yaml_config_path), m_robot(robot)
+tsidTaskParser::tsidTaskParser(const std::string &yaml_config_path, std::shared_ptr<tsid::robots::RobotWrapper> robot,
+                               const std::string &urdf_path)
+    : m_yaml_path(yaml_config_path), m_urdf_path(urdf_path), m_robot(robot)
 {
     loadYaml();
     if (m_robot) {
@@ -66,18 +71,140 @@ void tsidTaskParser::parseContactMetadata(const tsid::robots::RobotWrapper &robo
         contact_nodes.push_back(m_config["contact_task"]);
     }
 
+    // Every setting of a contact is read here, so the YAML node and its
+    // ContactInfo can never get out of step (e.g. when an entry is skipped).
     for (const auto &c_node : contact_nodes) {
         if (!c_node["contact_frame"]) continue;
-        std::string frame_name = c_node["contact_frame"].as<std::string>();
-        if (!robot.model().existFrame(frame_name)) {
-            std::cerr << "[tsidTaskParser] Warning: Frame '" << frame_name 
-                      << "' not found in robot model during metadata parsing." << std::endl;
+        ContactInfo info;
+        info.frame_name = c_node["contact_frame"].as<std::string>();
+        if (!robot.model().existFrame(info.frame_name)) {
+            std::cerr << "[tsidTaskParser] Warning: Frame '" << info.frame_name
+                      << "' not found in robot model, contact skipped." << std::endl;
             continue;
         }
-        pinocchio::FrameIndex frame_id = robot.model().getFrameId(frame_name);
-        double sole_z = c_node["sole_z"] ? c_node["sole_z"].as<double>() : -0.040;
-        m_contact_infos.push_back({frame_name, frame_id, sole_z, nullptr});
+        info.frame_id = robot.model().getFrameId(info.frame_name);
+
+        if (c_node["mu"]) info.mu = c_node["mu"].as<double>();
+        if (c_node["f_min"]) info.f_min = c_node["f_min"].as<double>();
+        if (c_node["f_max"]) info.f_max = c_node["f_max"].as<double>();
+        if (c_node["kp"]) info.kp = c_node["kp"].as<double>();
+        info.kd = c_node["kd"] ? c_node["kd"].as<double>() : 2.0 * std::sqrt(info.kp);
+        if (c_node["weight"]) info.w_force_reg = c_node["weight"].as<double>();
+        else if (c_node["w_force_reg"]) info.w_force_reg = c_node["w_force_reg"].as<double>();
+
+        // Contact normal in the contact frame (default: +z)
+        if (c_node["contact_normal"] && c_node["contact_normal"].IsSequence()) {
+            const std::vector<double> n = c_node["contact_normal"].as<std::vector<double>>();
+            if (n.size() == 3 && Eigen::Vector3d(n[0], n[1], n[2]).norm() > 1e-9) {
+                info.contact_normal = Eigen::Vector3d(n[0], n[1], n[2]).normalized();
+            } else {
+                std::cerr << "[tsidTaskParser] Warning: invalid contact_normal for '" << info.frame_name
+                          << "', using [0, 0, 1]" << std::endl;
+            }
+        }
+
+        // Contact points, in order of precedence:
+        //   1. explicit "contact_points" list in the YAML
+        //   2. bottom face of the link's URDF collision box ("contact_geometry: urdf", the default)
+        //   3. rectangle from sole_x_min/max, sole_y_min/max, sole_z
+        const std::string geometry = c_node["contact_geometry"] ? c_node["contact_geometry"].as<std::string>() : "urdf";
+        if (c_node["contact_points"] && c_node["contact_points"].IsSequence()) {
+            const auto &pts = c_node["contact_points"];
+            info.contact_points.resize(3, pts.size());
+            for (size_t i = 0; i < pts.size(); ++i) {
+                const std::vector<double> pt = pts[i].as<std::vector<double>>();
+                if (pt.size() != 3) {
+                    throw std::runtime_error("[tsidTaskParser] contact_points of '" + info.frame_name +
+                                             "' must be [x, y, z] triplets");
+                }
+                info.contact_points.col(i) << pt[0], pt[1], pt[2];
+            }
+            info.points_source = "yaml";
+        } else if (geometry == "urdf" && soleCornersFromUrdf(info.frame_name, info.contact_normal, info.contact_points)) {
+            info.points_source = "urdf";
+        } else {
+            const double sole_z = c_node["sole_z"] ? c_node["sole_z"].as<double>() : -0.040;
+            const double x_back = c_node["sole_x_min"] ? c_node["sole_x_min"].as<double>() : -0.05;
+            const double x_front = c_node["sole_x_max"] ? c_node["sole_x_max"].as<double>() : 0.13;
+            const double y_right = c_node["sole_y_min"] ? c_node["sole_y_min"].as<double>() : -0.03;
+            const double y_left = c_node["sole_y_max"] ? c_node["sole_y_max"].as<double>() : 0.03;
+            info.contact_points.resize(3, 4);
+            info.contact_points << x_back,  x_back,  x_front, x_front,
+                                   y_right, y_left,  y_right, y_left,
+                                   sole_z,  sole_z,  sole_z,  sole_z;
+            info.points_source = "default";
+        }
+
+        // TSID's Contact6d is hard-wired to 4 points (only assert-checked)
+        if (info.contact_points.cols() != 4) {
+            throw std::runtime_error("[tsidTaskParser] Contact '" + info.frame_name + "' has " +
+                                     std::to_string(info.contact_points.cols()) +
+                                     " contact points; Contact6d requires exactly 4");
+        }
+        info.sole_z = info.contact_points.row(2).mean();
+
+        std::cout << "[tsidTaskParser] Contact '" << info.frame_name << "' points (" << info.points_source
+                  << "):\n" << info.contact_points << std::endl;
+        m_contact_infos.push_back(info);
     }
+}
+
+bool tsidTaskParser::soleCornersFromUrdf(const std::string &link_name, const Eigen::Vector3d &normal,
+                                          Eigen::Matrix3Xd &corners) const
+{
+    if (m_urdf_path.empty()) return false;
+    const urdf::ModelInterfaceSharedPtr urdf_model = urdf::parseURDFFile(m_urdf_path);
+    if (!urdf_model) {
+        std::cerr << "[tsidTaskParser] Warning: failed to parse URDF '" << m_urdf_path << "'" << std::endl;
+        return false;
+    }
+    const urdf::LinkConstSharedPtr link = urdf_model->getLink(link_name);
+    if (!link) {
+        std::cerr << "[tsidTaskParser] Warning: '" << link_name
+                  << "' is not a URDF link, cannot read its collision geometry" << std::endl;
+        return false;
+    }
+
+    // Among the link's collision boxes, take the face pointing most against the
+    // contact normal (the sole); with several boxes, the one lowest along -normal.
+    // URDF link frames coincide with Pinocchio's body frames, so the result is
+    // directly in the contact frame.
+    double best_height = std::numeric_limits<double>::infinity();
+    for (const auto &collision : link->collision_array) {
+        if (!collision || !collision->geometry || collision->geometry->type != urdf::Geometry::BOX) continue;
+        const auto box = std::static_pointer_cast<const urdf::Box>(collision->geometry);
+        const urdf::Pose &pose = collision->origin;
+        const Eigen::Vector3d center(pose.position.x, pose.position.y, pose.position.z);
+        const Eigen::Matrix3d R =
+            Eigen::Quaterniond(pose.rotation.w, pose.rotation.x, pose.rotation.y, pose.rotation.z).toRotationMatrix();
+        const Eigen::Vector3d half(box->dim.x / 2.0, box->dim.y / 2.0, box->dim.z / 2.0);
+
+        int k = 0;
+        for (int a = 1; a < 3; ++a) {
+            if (std::abs(R.col(a).dot(normal)) > std::abs(R.col(k).dot(normal))) k = a;
+        }
+        const double s = (R.col(k).dot(normal) > 0.0) ? -1.0 : 1.0;
+        const Eigen::Vector3d face_center = center + s * half(k) * R.col(k);
+        const double height = face_center.dot(normal);
+        if (height >= best_height) continue;
+        best_height = height;
+
+        // Corners ordered (-i,-j), (-i,+j), (+i,-j), (+i,+j) over the face's two in-plane axes
+        const int i = (k == 0) ? 1 : 0;
+        const int j = 3 - k - i;
+        corners.resize(3, 4);
+        int c = 0;
+        for (double si : {-1.0, 1.0}) {
+            for (double sj : {-1.0, 1.0}) {
+                corners.col(c++) = face_center + si * half(i) * R.col(i) + sj * half(j) * R.col(j);
+            }
+        }
+    }
+    if (!std::isfinite(best_height)) {
+        std::cerr << "[tsidTaskParser] Warning: link '" << link_name << "' has no collision box" << std::endl;
+        return false;
+    }
+    return true;
 }
 
 double tsidTaskParser::getSoleZ() const
@@ -96,6 +223,42 @@ double tsidTaskParser::getSoleZ(const std::string &frame_name) const
         }
     }
     return getSoleZ();
+}
+
+Eigen::VectorXd tsidTaskParser::computeGroundedConfiguration(const Eigen::VectorXd &qj, double clearance) const
+{
+    if (!m_robot) {
+        throw std::runtime_error("[tsidTaskParser] RobotWrapper is null in computeGroundedConfiguration");
+    }
+    const pinocchio::Model &model = m_robot->model();
+    if (qj.size() != m_robot->na()) {
+        throw std::runtime_error("[tsidTaskParser] computeGroundedConfiguration expects " +
+                                 std::to_string(m_robot->na()) + " joint positions, got " +
+                                 std::to_string(qj.size()));
+    }
+
+    Eigen::VectorXd q = pinocchio::neutral(model); // base at origin, identity orientation
+    q.tail(m_robot->na()) = qj;
+
+    pinocchio::Data data(model);
+    pinocchio::framesForwardKinematics(model, data, q);
+
+    // Lowest contact point in the world, using the actual sole corners so a
+    // tilted foot is handled too
+    double lowest_z = std::numeric_limits<double>::infinity();
+    for (const auto &info : m_contact_infos) {
+        const pinocchio::SE3 &oMf = data.oMf[info.frame_id];
+        for (int i = 0; i < info.contact_points.cols(); ++i) {
+            lowest_z = std::min(lowest_z, oMf.act(Eigen::Vector3d(info.contact_points.col(i))).z());
+        }
+    }
+    if (!std::isfinite(lowest_z)) {
+        std::cerr << "[tsidTaskParser] Warning: no contacts defined, base height left at 0" << std::endl;
+        return q;
+    }
+
+    q[2] = -lowest_z + clearance;
+    return q;
 }
 
 Eigen::Vector3d tsidTaskParser::computeSupportCenter(const pinocchio::Data &data, const tsid::robots::RobotWrapper &robot) const
@@ -136,84 +299,19 @@ void tsidTaskParser::setTaskconfig(tsid::InverseDynamicsFormulationAccForce &tsi
 
 void tsidTaskParser::setupContacts(tsid::InverseDynamicsFormulationAccForce &tsid, tsid::robots::RobotWrapper &robot)
 {
-    std::vector<YAML::Node> contact_nodes;
-
-    if (m_config["contact_tasks"]) {
-        const auto &node = m_config["contact_tasks"];
-        if (node.IsSequence()) {
-            for (const auto &c : node) contact_nodes.push_back(c);
-        } else if (node.IsMap()) {
-            for (const auto &kv : node) contact_nodes.push_back(kv.second);
-        }
-    } else if (m_config["contacts"] && m_config["contacts"].IsMap()) {
-        for (const auto &kv : m_config["contacts"]) contact_nodes.push_back(kv.second);
-    } else if (m_config["contact_task"] && m_config["contact_task"].IsMap()) {
-        contact_nodes.push_back(m_config["contact_task"]);
-    }
-
-    for (size_t idx = 0; idx < contact_nodes.size() && idx < m_contact_infos.size(); ++idx) {
-        const auto &c_node = contact_nodes[idx];
-        auto &info = m_contact_infos[idx];
-
-        double mu = c_node["mu"] ? c_node["mu"].as<double>() : 0.8;
-        double f_min = c_node["f_min"] ? c_node["f_min"].as<double>() : 0.0;
-        double f_max = c_node["f_max"] ? c_node["f_max"].as<double>() : 1000.0;
-        double kp = c_node["kp"] ? c_node["kp"].as<double>() : 10.0;
-        double kd = c_node["kd"] ? c_node["kd"].as<double>() : (2.0 * std::sqrt(kp));
-        
-        double weight = 1e-5;
-        if (c_node["weight"]) {
-            weight = c_node["weight"].as<double>();
-        } else if (c_node["w_force_reg"]) {
-            weight = c_node["w_force_reg"].as<double>();
-        }
-
-        // Contact normal (default: [0, 0, 1])
-        Eigen::Vector3d contact_normal(0.0, 0.0, 1.0);
-        if (c_node["contact_normal"] && c_node["contact_normal"].IsSequence()) {
-            std::vector<double> n = c_node["contact_normal"].as<std::vector<double>>();
-            if (n.size() == 3) {
-                contact_normal = Eigen::Vector3d(n[0], n[1], n[2]).normalized();
-            }
-        }
-
-        // Contact points
-        Eigen::Matrix3Xd contact_points;
-        if (c_node["contact_points"] && c_node["contact_points"].IsSequence()) {
-            const auto &pts = c_node["contact_points"];
-            const int num_pts = static_cast<int>(pts.size());
-            contact_points.resize(3, num_pts);
-            for (int i = 0; i < num_pts; ++i) {
-                std::vector<double> pt = pts[i].as<std::vector<double>>();
-                contact_points(0, i) = pt.size() > 0 ? pt[0] : 0.0;
-                contact_points(1, i) = pt.size() > 1 ? pt[1] : 0.0;
-                contact_points(2, i) = pt.size() > 2 ? pt[2] : 0.0;
-            }
-        } else {
-            // Default 4 rectangular sole corners:
-            double sole_z = info.sole_z;
-            double x_back = c_node["sole_x_min"] ? c_node["sole_x_min"].as<double>() : -0.05;
-            double x_front = c_node["sole_x_max"] ? c_node["sole_x_max"].as<double>() : 0.13;
-            double y_right = c_node["sole_y_min"] ? c_node["sole_y_min"].as<double>() : -0.03;
-            double y_left = c_node["sole_y_max"] ? c_node["sole_y_max"].as<double>() : 0.03;
-
-            contact_points.resize(3, 4);
-            contact_points << x_back,  x_back,  x_front, x_front,
-                              y_right, y_left,  y_right, y_left,
-                              sole_z,  sole_z,  sole_z,  sole_z;
-        }
-
-        std::string task_name = "contact_" + info.frame_name;
+    for (auto &info : m_contact_infos) {
+        const std::string task_name = "contact_" + info.frame_name;
         info.contact = std::make_shared<tsid::contacts::Contact6d>(
-            task_name, robot, info.frame_name, contact_points, contact_normal, mu, f_min, f_max);
+            task_name, robot, info.frame_name, info.contact_points, info.contact_normal,
+            info.mu, info.f_min, info.f_max);
+        info.contact->Kp(info.kp * Eigen::VectorXd::Ones(6));
+        info.contact->Kd(info.kd * Eigen::VectorXd::Ones(6));
 
-        info.contact->Kp(kp * Eigen::VectorXd::Ones(6));
-        info.contact->Kd(kd * Eigen::VectorXd::Ones(6));
+        tsid.addRigidContact(*info.contact, info.w_force_reg);
 
-        tsid.addRigidContact(*info.contact, weight);
-
-        std::cout << "[tsidTaskParser] Added 6D contact for frame '" << info.frame_name 
-                  << "' (kp=" << kp << ", kd=" << kd << ", w_force_reg=" << weight << ")" << std::endl;
+        std::cout << "[tsidTaskParser] Added 6D contact for frame '" << info.frame_name
+                  << "' (kp=" << info.kp << ", kd=" << info.kd << ", w_force_reg=" << info.w_force_reg << ")"
+                  << std::endl;
     }
 }
 

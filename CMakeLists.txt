@@ -57,15 +57,19 @@ string(PREPEND CMAKE_EXE_LINKER_FLAGS "-Wl,--no-as-needed -ltinyxml2 ")
 # -----------------------------------------------------------------------------
 # Core Library: bundles sim_interface + Pinocchio + MuJoCo + TSID + GLFW + Eigen
 # -----------------------------------------------------------------------------
-set(CORE_SOURCES
-  ${CMAKE_CURRENT_SOURCE_DIR}/sim_interface/Robot_Simulator.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/utils/utils.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/cheat_state_estimator.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/joystick_interpreter.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/ramp_trajectory.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/common/data_logger.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/common/parse_tsid_tasks.cpp
+# Every .cpp in these folders is compiled automatically. CONFIGURE_DEPENDS makes
+# the build re-scan the folders, so new files are picked up without re-running
+# cmake by hand.
+file(GLOB CORE_SOURCES CONFIGURE_DEPENDS
+  ${CMAKE_CURRENT_SOURCE_DIR}/sim_interface/*.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/utils/*.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/*.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/common/*.cpp
 )
+
+# Backup copies such as "foo copy.cpp" are never compiled (they would define
+# the same symbols twice)
+list(FILTER CORE_SOURCES EXCLUDE REGEX " copy\\.cpp$")
 
 add_library(core STATIC ${CORE_SOURCES})
 target_include_directories(core PUBLIC
@@ -109,20 +113,11 @@ add_library(sim_interface ALIAS core)
 # Executables (demos, tests, etc.)
 # -----------------------------------------------------------------------------
 
-add_executable(init_mujoco_glfw_ui demos/init_mujoco_glfw_ui.cpp)
-target_link_libraries(init_mujoco_glfw_ui PRIVATE core)
-
-add_executable(ur10e_tsid_control demos/ur10e_tsid_control.cpp)
-target_link_libraries(ur10e_tsid_control PRIVATE core)
-
-add_executable(biped_robot_leg demos/biped_robot_leg.cpp)
-target_link_libraries(biped_robot_leg PRIVATE core)
-
-add_executable(ur10_posturer_task demos/ur10_posturer_task.cpp)
-target_link_libraries(ur10_posturer_task PRIVATE core)
-
-add_executable(biped_standing demos/biped_standing.cpp)
-target_link_libraries(biped_standing PRIVATE core)
-
-add_executable(biped_swing_com demos/biped_swing_com.cpp)
-target_link_libraries(biped_swing_com PRIVATE core)
+# One executable per demos/*.cpp, named after the file (demos/foo.cpp -> foo)
+file(GLOB DEMO_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/demos/*.cpp)
+list(FILTER DEMO_SOURCES EXCLUDE REGEX " copy\\.cpp$")
+foreach(demo_src ${DEMO_SOURCES})
+  get_filename_component(demo_name ${demo_src} NAME_WE)
+  add_executable(${demo_name} ${demo_src})
+  target_link_libraries(${demo_name} PRIVATE core)
+endforeach()
