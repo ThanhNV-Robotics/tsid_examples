@@ -46,7 +46,10 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(urdfdom REQUIRED IMPORTED_TARGET urdfdom)
 find_package(Boost REQUIRED COMPONENTS filesystem system)
 find_package(yaml-cpp QUIET)
-find_package(tinyxml2 CONFIG REQUIRED)
+pkg_check_modules(tinyxml2 REQUIRED IMPORTED_TARGET tinyxml2)
+if(TARGET PkgConfig::tinyxml2 AND NOT TARGET tinyxml2::tinyxml2)
+  add_library(tinyxml2::tinyxml2 ALIAS PkgConfig::tinyxml2)
+endif()
 
 # Preload system tinyxml2 before MuJoCo's internal bundled tinyxml2 to avoid crash in urdfdom
 string(PREPEND CMAKE_EXE_LINKER_FLAGS "-Wl,--no-as-needed -ltinyxml2 ")
@@ -58,7 +61,10 @@ set(CORE_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/sim_interface/Robot_Simulator.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/utils.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/cheat_state_estimator.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/joystick_interpreter.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/ramp_trajectory.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/common/data_logger.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/common/parse_tsid_tasks.cpp
 )
 
 add_library(core STATIC ${CORE_SOURCES})
@@ -117,3 +123,6 @@ target_link_libraries(ur10_posturer_task PRIVATE core)
 
 add_executable(biped_standing demos/biped_standing.cpp)
 target_link_libraries(biped_standing PRIVATE core)
+
+add_executable(biped_swing_com demos/biped_swing_com.cpp)
+target_link_libraries(biped_swing_com PRIVATE core)

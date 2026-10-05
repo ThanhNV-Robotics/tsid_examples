@@ -194,7 +194,14 @@ void load_postureTask_gain(const string cd_yaml_path, Eigen::VectorXd &Kp,
     std::vector<double> kp_list;
     std::vector<double> kd_list;
 
-    for (const auto &kv : root) {
+    YAML::Node jg = root;
+    if (root["posture_task"] && root["posture_task"]["joint_gain"]) {
+      jg = root["posture_task"]["joint_gain"];
+    } else if (root["posture_task"] && root["posture_task"]["joint_gains"]) {
+      jg = root["posture_task"]["joint_gains"];
+    }
+
+    for (const auto &kv : jg) {
       const YAML::Node &node = kv.second;
       if (node.IsMap() && node["kp"] && node["kd"]) {
         kp_list.push_back(node["kp"].as<double>());

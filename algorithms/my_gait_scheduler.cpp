@@ -28,59 +28,6 @@ MyGaitScheduler::MyGaitScheduler(const std::string &yamlPath, double dtIn)
     touchDown = false;
 }
 
-// void MyGaitScheduler::dataBusRead(const DataBus &robotState)
-// {
-// 	if (motionState != DataBus::Stand && stepNumCur == 0)
-// 		legState=firstleg;
-//     model_nv = robotState.model_nv;
-//     torJoint = Eigen::VectorXd::Zero(model_nv - 6);
-//     for (int i = 0; i < model_nv - 6; i++)
-//     {
-//         torJoint[i] = robotState.motors_tor_cur[i];
-//     }
-//     dyn_M = robotState.dyn_M;
-//     dyn_Non = robotState.dyn_Non;
-//     J_l = robotState.J_l;
-//     dJ_l = robotState.dJ_l;
-//     J_r = robotState.J_r;
-//     dJ_r = robotState.dJ_r;
-//     Fz_L_m = robotState.fL[2];
-//     Fz_R_m = robotState.fR[2];
-//     hip_l_pos_W = robotState.hip_l_pos_W;
-//     hip_r_pos_W = robotState.hip_r_pos_W;
-//     fe_r_pos_W = robotState.fe_r_pos_W;
-//     fe_l_pos_W = robotState.fe_l_pos_W;
-//     fe_l_rot_W = robotState.fe_l_rot_W;
-//     fe_r_rot_W = robotState.fe_r_rot_W;
-//     dq = robotState.dq;
-//     motionState = robotState.motionState;
-// }
-
-// void MyGaitScheduler::dataBusWrite(DataBus &robotState)
-// {
-//     robotState.tSwing = tSwing;
-//     robotState.swingStartPos_W = swingStartPos_W;
-//     robotState.stanceDesPos_W = stanceStartPos_W;
-//     robotState.posHip_W = posHip_W;
-//     robotState.posST_W = posST_W;
-//     robotState.theta0 = theta0;
-//     robotState.legState = legState;
-//     robotState.legStateNext = legStateNext;
-//     robotState.phi = phi;
-//     robotState.FL_est = FLest;
-//     robotState.FR_est = FRest;
-//     if (legState == DataBus::LSt)
-//     {
-//         robotState.stance_fe_pos_cur_W = fe_l_pos_W;
-//         robotState.stance_fe_rot_cur_W = fe_l_rot_W;
-//     }
-//     else if (legState == DataBus::RSt){
-//         robotState.stance_fe_pos_cur_W=fe_r_pos_W;
-//         robotState.stance_fe_rot_cur_W=fe_r_rot_W;
-//     }
-//     robotState.motionState = motionState;
-// }
-
 void MyGaitScheduler::step(JoyStickInterpreter &joyStick)
 {
     // Eigen::VectorXd tauAll;

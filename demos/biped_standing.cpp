@@ -31,6 +31,7 @@
 #include "utils.h" // supporting functions
 #include "data_logger.h"
 #include "data_type.h"
+#include "parse_tsid_tasks.h"
 
 using namespace tsid;
 using namespace tsid::robots;
@@ -45,7 +46,7 @@ using tsid::contacts::Contact6d;
 int main(int argc, char **argv) {
   const string XML_PATH = "models/mjcf/scene_floatingbase_12dof_v2.xml";
   const string URDF_PATH = "models/urdf/v2_biped_robot_12dof.urdf";
-  const string JOINT_PD_CF_PATH = "config/12dof_joint_config.yaml";
+  const string TSID_CONFIG_PATH = "config/tsid_config.yaml";
 
   std::printf("====================================================\n");
   std::printf("  Biped TSID Standing Posture Control with MuJoCo   \n");
@@ -67,10 +68,14 @@ int main(int argc, char **argv) {
   // free-flyer must be added here. Without it TSID assumes the torso is bolted
   // to the world and only computes the torques needed to swing the legs in
   // the air -- far too little to carry the body weight through the feet.
-  RobotWrapper robot(URDF_PATH, package_dirs, pinocchio::JointModelFreeFlyer(), false);
+  auto robot_ptr = std::make_shared<RobotWrapper>(URDF_PATH, package_dirs, pinocchio::JointModelFreeFlyer(), false);
+  RobotWrapper &robot = *robot_ptr;
   std::printf("[TSID] Loaded URDF '%s'\n", URDF_PATH.c_str());
   std::printf("[TSID] Robot DOF: nq=%d, nv=%d, na=%d\n", robot.nq(), robot.nv(),
               robot.na());
+
+  // Initialize tsidTaskParser with YAML config and RobotWrapper pointer early
+  tsidTaskParser task_parser(TSID_CONFIG_PATH, robot_ptr);
 
   // ------------------------------------------------------------------------
   // 3. Compile Pinocchio model and data for standing IK
@@ -96,29 +101,20 @@ int main(int argc, char **argv) {
   q_bent[5] = -0.05;  // left ankle
   q_bent[11] = -0.08; // right ankle
 
-  // Foot sole geometry (matches the "foot1" collision box in the MJCF), expressed
-  // in the ankle-pitch link frame: box center (0.04, 0, -0.034), half-size
-  // (0.09, 0.03, 0.006).
-  const string LF_FRAME = "left_ankle_pitch_link";
-  const string RF_FRAME = "right_ankle_pitch_link";
-  const double sole_z = -0.040;
-  Matrix3Xd contact_points(3, 4);
-  contact_points << -0.05, -0.05, 0.13, 0.13,
-                    -0.03,  0.03, -0.03, 0.03,
-                    sole_z, sole_z, sole_z, sole_z; // list of contact point on the contact sole
-  const Vector3d contact_normal(0.0, 0.0, 1.0); // normal contact force direction w.r.t contact frame
-
-  // // Place the base so that the soles of the bent configuration rest on the floor
+  // Place the base so that all parsed contact soles rest on the floor
   VectorXd q(robot.nq());
   VectorXd v = VectorXd::Zero(robot.nv());
+  
   q = pinocchio::neutral(robot.model());
   q.tail(robot.na()) = q_bent;
   {
     pinocchio::Data d_tmp(robot.model());
     pinocchio::framesForwardKinematics(robot.model(), d_tmp, q);
-    const double foot_z = std::min(
-        d_tmp.oMf[robot.model().getFrameId(LF_FRAME)].translation().z(),
-        d_tmp.oMf[robot.model().getFrameId(RF_FRAME)].translation().z());
+    double foot_z = 1e9;
+    for (const auto &info : task_parser.getContactInfos()) {
+      foot_z = std::min(foot_z, d_tmp.oMf[info.frame_id].translation().z());
+    }
+    const double sole_z = task_parser.getSoleZ();
     q[2] = -(foot_z + sole_z) + 1e-3;
   }
   VectorXd qpos_mj(sim.nq());
@@ -133,70 +129,23 @@ int main(int argc, char **argv) {
   tsid.computeProblemData(0.0, q, v);
   const pinocchio::Data &data = tsid.data();
 
-  // Rigid 6D contacts on both feet: these let TSID use ground reaction forces
-  // to hold the body up (and constrain them to friction cones).
-  const double mu = 0.8, f_min = 0.0, f_max = 1000.0;
-  const double kp_contact = 10.0, w_force_reg = 1e-5;
-  auto contact_lf = std::make_shared<Contact6d>("contact_lfoot", robot, LF_FRAME,
-                                                contact_points, contact_normal,
-                                                mu, f_min, f_max);
-  auto contact_rf = std::make_shared<Contact6d>("contact_rfoot", robot, RF_FRAME,
-                                                contact_points, contact_normal,
-                                                mu, f_min, f_max);
-  for (auto &c : {contact_lf, contact_rf}) {
-    c->Kp(kp_contact * VectorXd::Ones(6));
-    c->Kd(2.0 * std::sqrt(kp_contact) * VectorXd::Ones(6));
-  }
-  contact_lf->setReference(robot.framePosition(data, robot.model().getFrameId(LF_FRAME)));
-  contact_rf->setReference(robot.framePosition(data, robot.model().getFrameId(RF_FRAME)));
-  tsid.addRigidContact(*contact_lf, w_force_reg);
-  tsid.addRigidContact(*contact_rf, w_force_reg);
+  // Configure tasks and update contact placements
+  task_parser.setTaskconfig(tsid, robot);
+  task_parser.updateContactReferences(data);
 
-  // Keep the CoM horizontally centred over the two soles (height is left to
-  // the posture task).
-  const double kp_com = 50.0, w_com = 1.0;
-  auto com_task = std::make_shared<TaskComEquality>("task-com", robot);
-  com_task->Kp(kp_com * VectorXd::Ones(3));
-  com_task->Kd(2.0 * std::sqrt(kp_com) * VectorXd::Ones(3));
-  com_task->setMask(Vector3d(1.0, 1.0, 0.0));
-  Vector3d com_ref = 0.5 * (robot.framePosition(data, robot.model().getFrameId(LF_FRAME)).translation() +
-                            robot.framePosition(data, robot.model().getFrameId(RF_FRAME)).translation());
+  auto com_task = task_parser.getComTask();
+  auto posture_task = task_parser.getPostureTask();
+
+  // Set reference for CoM task horizontally centred over all contact feet
+  Vector3d com_ref = task_parser.computeSupportCenter(data, robot);
   com_ref.x() += 0.04; // sole centre is 4 cm ahead of the ankle
   TrajectorySample com_sample(3);
   com_sample.setValue(com_ref);
   com_sample.setDerivative(Vector3d::Zero());
   com_sample.setSecondDerivative(Vector3d::Zero());
   com_task->setReference(com_sample);
-  tsid.addMotionTask(*com_task, w_com, 1);
 
-  // Respect the MuJoCo actuator ctrlrange so TSID plans torques that are
-  // actually applied (MuJoCo would silently clip them otherwise).
-  auto torque_bounds = std::make_shared<TaskActuationBounds>("task-torque-bounds", robot);
-  VectorXd tau_max(robot.na());
-  for (int i = 0; i < robot.na(); ++i) tau_max(i) = sim.model()->actuator_ctrlrange[2 * i + 1];
-  torque_bounds->setBounds(-tau_max, tau_max);
-  tsid.addActuationTask(*torque_bounds, 1.0, 0);
 
-  // Posture task for tracking joint-space configuration
-  auto posture_task = std::make_shared<TaskJointPosture>("task-posture", robot);
-
-  // Kp and Kd gain vectors for the posture task from YAML config
-  VectorXd Kp = VectorXd::Zero(robot.na());
-  VectorXd Kd = VectorXd::Zero(robot.na());
-  utils::load_postureTask_gain(JOINT_PD_CF_PATH, Kp, Kd);
-  // TSID task gains are *acceleration* gains (ddq* = Kp*e + Kd*de), not the
-  // Nm/rad joint PD gains in the YAML. The YAML kd values give damping ratios
-  // of ~0.05 here, so use critical damping instead.
-  Kd = 2.0 * Kp.cwiseSqrt();
-  std::cout << "Posture Kp gains:\n" << Kp.transpose() << std::endl;
-  std::cout << "Posture Kd gains:\n" << Kd.transpose() << std::endl;
-
-  posture_task->Kp(Kp);
-  posture_task->Kd(Kd);
-
-  const double w_posture = 1e-1; // weight in the cost function
-  tsid.addMotionTask(*posture_task, w_posture, 1, 0.0);
-  std::cout << "Configured posture task successfully." << std::endl;
 
   // ------------------------------------------------------------------------
   // 4. Initialize HQP Solver (eiquadprog-fast)

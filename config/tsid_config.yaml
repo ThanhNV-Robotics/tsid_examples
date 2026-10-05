@@ -1,4 +1,78 @@
-tsid:
-  contact_task: # to config 6D contact task
-    contact_frame: "left_ankle_pitch_link"
-    
+contact_tasks: # List of 6D rigid contacts
+  - contact_frame: "left_ankle_pitch_link"
+    mu: 0.8 # friction coefficient for friction cone constraint
+    f_min: 0.0 # minimum normal contact force
+    f_max: 1000.0 # maximum normal contact force
+    kp: 10.0 # proportional gain for contact acceleration
+    weight: 1e-5 # force regularization weight (w_force_reg)
+    sole_z: -0.040 # sole z offset in ankle link frame
+
+  - contact_frame: "right_ankle_pitch_link"
+    mu: 0.8 # friction coefficient for friction cone constraint
+    f_min: 0.0 # minimum normal contact force
+    f_max: 1000.0 # maximum normal contact force
+    kp: 10.0 # proportional gain for contact acceleration
+    weight: 1e-5 # force regularization weight (w_force_reg)
+    sole_z: -0.040 # sole z offset in ankle link frame
+
+com_task:
+  mask: [1.0, 1.0, 0.0] # selected axes to control: [x, y, z] (1=active, 0=unconstrained)
+  kp: 50.0 # proportional gain
+  weight: 1.0 # task weight in the QP cost function
+  priority: 1 # priority level (1 = soft motion task)
+
+actuation_bounds_task:
+  weight: 1.0
+  priority: 0 # priority 0 = hard constraint in TSID
+
+posture_task: # joint space control task
+  weight: 0.1 # task weight in the QP cost function
+  priority: 1
+  joint_gain: # joint kp and kd gains 
+    left_hip_pitch_joint:
+      kd: 6.0 #
+      kp: 100.0
+
+    left_hip_roll_joint:
+      kd: 7.0 #
+      kp: 120.0
+
+    left_hip_yaw_joint:
+      kd: 4.0 #
+      kp: 60.0
+
+    left_knee_pitch_joint:  
+      kd: 7.0 #
+      kp: 120.0
+
+    left_ankle_roll_joint:  
+      kd: 0.6 # 
+      kp: 30.0
+
+    left_ankle_pitch_joint:  
+      kd: 0.6 # 
+      kp: 30.0
+
+    right_hip_pitch_joint:
+      kd: 6.0 # 
+      kp: 100.0
+
+    right_hip_roll_joint:
+      kd: 7.0 # 
+      kp: 120.0
+
+    right_hip_yaw_joint:  
+      kd: 4.0 # 
+      kp: 60.0
+
+    right_knee_pitch_joint:  
+      kd: 7.0 # 
+      kp: 120.0
+
+    right_ankle_roll_joint:  
+      kd: 0.6 # 
+      kp: 30.0
+
+    right_ankle_pitch_joint:  
+      kd: 0.6 # 
+      kp: 30.0
