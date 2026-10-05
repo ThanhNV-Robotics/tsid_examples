@@ -3,8 +3,8 @@ contact_tasks: # List of 6D rigid contacts
     mu: 0.8 # friction coefficient for friction cone constraint
     f_min: 0.0 # minimum normal contact force
     f_max: 1000.0 # maximum normal contact force
-    kp: 100.0 # proportional gain for contact acceleration
-    kd: 20.0 # derivative gain for contact acceleration (default 2*sqrt(kp) if omitted)
+    kp: 5.0 # proportional gain for contact acceleration
+    kd: 4.5 # derivative gain for contact acceleration (default 2*sqrt(kp) if omitted)
     weight: 1e-3 # force regularization weight (w_force_reg)
     sole_z: -0.040 # sole z offset in ankle link frame
 
@@ -12,14 +12,14 @@ contact_tasks: # List of 6D rigid contacts
     mu: 0.8 # friction coefficient for friction cone constraint
     f_min: 0.0 # minimum normal contact force
     f_max: 1000.0 # maximum normal contact force
-    kp: 100.0 # proportional gain for contact acceleration
-    kd: 20.0 # derivative gain for contact acceleration (default 2*sqrt(kp) if omitted)
+    kp: 5.0 # proportional gain for contact acceleration
+    kd: 4.5 # derivative gain for contact acceleration (default 2*sqrt(kp) if omitted)
     weight: 1e-3 # force regularization weight (w_force_reg)
     sole_z: -0.040 # sole z offset in ankle link frame
 
 com_task:
   mask: [1.0, 1.0, 0.0] # selected axes to control: [x, y, z] (1=active, 0=unconstrained)
-  kp: 50.0 # proportional gain
+  kp: 30.0 # proportional gain
   weight: 5.5 # task weight in the QP cost function
   priority: 1 # priority level (1 = soft motion task)
 
@@ -31,7 +31,7 @@ base_orientation_task: # keep the base link upright
   priority: 1 # priority level (1 = soft motion task)
 
 swing_foot_task: # tracks the swing foot (contact frame) while it is in the air
-  kp: 300.0 # proportional gain (kd defaults to 2*sqrt(kp))
+  kp: 100.0 # proportional gain (kd defaults to 2*sqrt(kp))
   weight: 10.0 # task weight in the QP cost function
   priority: 1 # priority level (1 = soft motion task)
   contact_transition_time: 0.15 # [s] the lifting foot's contact force is ramped to zero over this time before removal
@@ -106,5 +106,5 @@ foot_placement: # swing-foot planner (algorithms/foot_placement.h); every key is
   right_foot_frame: "right_ankle_pitch_link"
 
 walking_command: # joystick command used by the walking demos
-  vx: 0.0 # forward speed [m/s]; 0 = step in place
+  vx: 0.1 # forward speed [m/s]; 0 = step in place
   ramp_time: 1.0 # time to ramp the speed command from 0 to vx [s]

@@ -20,8 +20,11 @@
         <default class="collision">
             <geom group="3" />
             <default class="contact">
+                <!-- high friction: sliding 2.0, torsional 0.05, rolling 0.001;
+                     condim 6 enables torsional + rolling friction so the
+                     planted foot does not spin about the vertical axis -->
                 <geom size="0.09 0.03 0.006" pos="0.04 0 -0.034" type="box" contype="1"
-                    conaffinity="1" />
+                    conaffinity="1" friction="1.0 0.05 0.001" condim="3" />
                 <site size="0.09 0.03 0.006" pos="0.04 0 -0.034" type="box" />
             </default>
             <default class="foot2">

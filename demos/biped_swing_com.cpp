@@ -205,15 +205,25 @@ int main(int argc, char **argv) {
   datalog.finishItemAdding();
 
   // Real-time plots
-  auto joystick_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
-                                                      "JoyStick Cmd", 10.0);
-  joystick_plot->setYLabel("Command_JoyStick");
-  joystick_plot->setLineWidth(2.0);
+  // Right leg joint torques (commanded), one line per joint
+  auto tau_right_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
+                                                       "Right leg torque", 10.0);
+  tau_right_plot->setYLabel("Nm");
+  tau_right_plot->setLineWidth(2.0);
 
-  auto gait_scheduler_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
-                                                      "Gait Phase", 10.0);
-  gait_scheduler_plot->setYLabel("Phase Variable");
-  gait_scheduler_plot->setLineWidth(2.0);
+  // Left leg joint torques (commanded), one line per joint
+  auto tau_left_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
+                                                      "Left leg torque", 10.0);
+  tau_left_plot->setYLabel("Nm");
+  tau_left_plot->setLineWidth(2.0);
+  // Legend names: "left_knee_pitch_joint" -> "knee_pitch"
+  vector<string> tau_left_names;
+  for (int i = 0; i < robot.na() / 2; ++i) {
+    string name = leg_joint_names[i];
+    if (name.rfind("left_", 0) == 0) name.erase(0, 5); // same joint names for both legs
+    if (name.size() > 6 && name.compare(name.size() - 6, 6, "_joint") == 0) name.erase(name.size() - 6);
+    tau_left_names.push_back(name);
+  }
 
   auto cp_planner_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
                                                       "Capture Point Planner", 10.0);
@@ -398,12 +408,16 @@ int main(int argc, char **argv) {
       // 6.6 Apply interactive user perturbations and step physics
       sim.stepPhysics();
     }
-    joystick_plot->addPoint("Vx", sim.time(), joystick.vx_W);
-    joystick_plot->addPoint("Base Z", sim.time(), joystick.pz_W);
-    joystick_plot->render();
+    // right leg joints follow the 6 left leg joints in tau
+    for (int i = 0; i < robot.na() / 2; ++i) {
+      tau_right_plot->addPoint(tau_left_names[i], sim.time(), tau(robot.na() / 2 + i));
+    }
+    tau_right_plot->render();
 
-    gait_scheduler_plot->addPoint("Phi", sim.time(), gait_scheduler.phi);
-    gait_scheduler_plot->render();
+    for (int i = 0; i < robot.na() / 2; ++i) {
+      tau_left_plot->addPoint(tau_left_names[i], sim.time(), tau(i));
+    }
+    tau_left_plot->render();
 
     cp_planner_plot->addPoint("ZMP_Y", sim.time(), cp_planner.py_d_);
     cp_planner_plot->addPoint("CP_Y", sim.time(), cp_planner.cxi_y_);
@@ -459,8 +473,8 @@ int main(int argc, char **argv) {
             << " lines)" << std::endl;
 
   // plot windows must be destroyed before GLFW shuts down
-  joystick_plot.reset();
-  gait_scheduler_plot.reset();
+  tau_right_plot.reset();
+  tau_left_plot.reset();
   cp_planner_plot.reset();
   foot_plot.reset();
   sim.Close();
