@@ -105,8 +105,8 @@ int main(int argc, char **argv) {
   Matrix3Xd contact_points(3, 4);
   contact_points << -0.05, -0.05, 0.13, 0.13,
                     -0.03,  0.03, -0.03, 0.03,
-                    sole_z, sole_z, sole_z, sole_z;
-  const Vector3d contact_normal(0.0, 0.0, 1.0);
+                    sole_z, sole_z, sole_z, sole_z; // list of contact point on the contact sole
+  const Vector3d contact_normal(0.0, 0.0, 1.0); // normal contact force direction w.r.t contact frame
 
   // // Place the base so that the soles of the bent configuration rest on the floor
   VectorXd q(robot.nq());
@@ -231,6 +231,25 @@ int main(int argc, char **argv) {
   datalog.addItem("tau_cmd", leg_joint_names);
   datalog.finishItemAdding();
 
+  // Real-time joint torque plots, one window per leg. Points are added once
+  // per rendered frame (60 Hz) since each line holds at most mjMAXLINEPNT
+  // points; 1 kHz samples would only show the last second.
+  auto tau_plot_left = std::make_unique<RealtimePlot>(sim.model(), 900, 450, "Left leg torque", 10.0);
+  auto tau_plot_right = std::make_unique<RealtimePlot>(sim.model(), 900, 450, "Right leg torque", 10.0);
+  for (auto *plot : {tau_plot_left.get(), tau_plot_right.get()}) {
+    plot->setYLabel("Nm");
+    plot->setLineWidth(2.0f);
+  }
+  // Legend names: "left_knee_pitch_joint" -> "knee_pitch"
+  vector<string> tau_plot_names;
+  for (string name : leg_joint_names) {
+    for (const string prefix : {"left_", "right_"})
+      if (name.rfind(prefix, 0) == 0) name.erase(0, prefix.size());
+    if (name.size() > 6 && name.compare(name.size() - 6, 6, "_joint") == 0) name.erase(name.size() - 6);
+    tau_plot_names.push_back(name);
+  }
+  VectorXd tau = VectorXd::Zero(robot.na());
+
   // ------------------------------------------------------------------------
   // 6. Simulation & Control Loop
   // ------------------------------------------------------------------------
@@ -268,7 +287,7 @@ int main(int argc, char **argv) {
       }
 
       // 6.4 Extract torques & apply to MuJoCo actuators via Robot_Simulator
-      Eigen::VectorXd tau = tsid.getActuatorForces(sol);
+      tau = tsid.getActuatorForces(sol);
       sim.setControl(tau);
 
       // 6.5 Log state
@@ -283,7 +302,14 @@ int main(int argc, char **argv) {
       sim.stepPhysics();
     }
 
-    // 6.7 Render frame
+    // 6.7 Update torque plots and render frame
+    const int n_leg = robot.na() / 2;
+    for (int i = 0; i < robot.na(); ++i) {
+      RealtimePlot &plot = (i < n_leg) ? *tau_plot_left : *tau_plot_right;
+      plot.addPoint(tau_plot_names[i], sim.time(), tau(i));
+    }
+    tau_plot_left->render();
+    tau_plot_right->render();
     sim.updateScene();
   }
 
@@ -292,6 +318,8 @@ int main(int argc, char **argv) {
   std::cout << "Data saved to " << datalog.path() << " (" << datalog.numLines() << " lines)" << std::endl;
 
   // Cleanup
+  tau_plot_left.reset(); // plot windows must be destroyed before GLFW shuts down
+  tau_plot_right.reset();
   sim.Close();
   return 0;
 }

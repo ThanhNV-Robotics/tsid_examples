@@ -1,2 +1,4 @@
 tsid:
-  contact: 
+  contact_task: # to config 6D contact task
+    contact_frame: "left_ankle_pitch_link"
+    

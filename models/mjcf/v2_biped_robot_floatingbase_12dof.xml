@@ -19,7 +19,7 @@
 
         <default class="collision">
             <geom group="3" />
-            <default class="foot1">
+            <default class="contact">
                 <geom size="0.09 0.03 0.006" pos="0.04 0 -0.034" type="box" contype="1"
                     conaffinity="1" />
                 <site size="0.09 0.03 0.006" pos="0.04 0 -0.034" type="box" />
@@ -119,7 +119,7 @@
                                                     <inertial pos="29.106E-3 0 -30.483E-3" mass="343.229E-3" fullinertia="1.546E-4 8.770E-4 9.434E-4 -9.97E-9 50230.908E-9 40.36E-9" />
                                                 
                                                     <!-- This geom is for collision -->
-                                                    <geom name="l_foot1" class="foot1" />
+                                                    <geom name="l_contact" class="contact" />
 
                                                     <!-- This site is for touch sensor -->
                                                     <site name="lf-tc" type="box" size="0.09 0.03 0.006"  pos="0.04 0 -0.034"  rgba="1 0 0 1" />
@@ -165,7 +165,7 @@
                                             <geom type="mesh" name = "Right_Foot" friction="5.0 0.1 0.1" class="visual" mesh="right_ankle_pitch_link" />
                                             <inertial pos="29.106E-3 0 -30.483E-3" mass="343.229E-3" fullinertia="1.546E-4 8.770E-4 9.434E-4 -9.97E-9 50230.908E-9 40.36E-9" />
                                             <!-- This geom is for collision -->
-                                            <geom name="r_foot1" class="foot1" />
+                                            <geom name="r_contact" class="contact" />
                                             <!-- This site is for touch sensor -->
                                             <site name="rf-tc" type="box" size="0.09 0.03 0.006"  pos="0.04 0 -0.034"  rgba="1 0 0 1" />
                                         </body>
