@@ -1,4 +1,4 @@
-#include "CP_Planning.h"
+#include "walk_planner.h"
 #include <algorithm>
 #include "data_type.h"
 #include <cmath>
@@ -17,7 +17,7 @@ double sideSign(LegState s)
 
 // LSt<->RSt swapped, DSt unchanged. Used to turn a TARGET label (which side
 // the CoM was shifting toward) into "which foot is now free" -- see
-// leg_state_swing_'s comment in CP_Planning.h.
+// leg_state_swing_'s comment in WalkPlanner.h.
 LegState oppositeLeg(LegState s)
 {
     if (s == LegState::RSt) return LegState::LSt;
@@ -26,23 +26,21 @@ LegState oppositeLeg(LegState s)
 }
 } // namespace
 
-CP_Planning::CP_Planning(const double dtIn, const double zIn, double wd_hipIn)
+WalkPlanner::WalkPlanner(const double dtIn, const double zIn, double wd_hipIn)
 {
     this->dt_ = dtIn;
     this->zc_ = zIn;
     this->wd_hip = wd_hipIn;
     this->w = std::sqrt(this->g/this->zc_);
-    this->phi_swing = 0.0;
     xc_ = 0; yc_= 0;
     d_xc_ = d_yc_ = 0;
     cxi_x_ = cxi_y_ = 0;
     cxi_xd_ = cxi_yd_ = 0;
     cxi_x0_ = cxi_y0_ = 0;
     leg_state_ = LegState::DSt; // init at double stand
-
 }
 
-void CP_Planning::setInitCom (Vector3d com_pos, Vector3d com_vel)
+void WalkPlanner::setInitCom (Vector3d com_pos, Vector3d com_vel)
 {
     this->xc_ = com_pos[0];
     this->yc_ = com_pos[1];
@@ -58,30 +56,30 @@ void CP_Planning::setInitCom (Vector3d com_pos, Vector3d com_vel)
     this->cxi_y_ = this->yc_ + this->d_yc_ / this->w;
     this->cxi_x0_ = this->cxi_xd_ = this->cxi_x_;
     this->cxi_y0_ = this->cxi_yd_ = this->cxi_y_;
-    this->px_d_ = this->cxi_x_;
-    this->py_d_ = this->cxi_y_;
+    this->zmp_x_d_ = this->cxi_x_;
+    this->zmp_y_d_ = this->cxi_y_;
 
     this->xBias = com_pos[0];
     this->yBias = com_pos[1];
 }
 
-Vector3d CP_Planning::getCoMref()
+Vector3d WalkPlanner::getCoMref()
 {
     Vector3d comRef{xc_, yc_, zc_};
     return comRef;
 }
 
-Vector3d CP_Planning::getCoMvelRef() const
+Vector3d WalkPlanner::getCoMvelRef() const
 {
     return Vector3d(d_xc_, d_yc_, 0.0);
 }
 
-Vector3d CP_Planning::getCoMaccRef() const
+Vector3d WalkPlanner::getCoMaccRef() const
 {
-    return Vector3d(w * w * (xc_ - px_d_), w * w * (yc_ - py_d_), 0.0);
+    return Vector3d(w * w * (xc_ - zmp_x_d_), w * w * (yc_ - zmp_y_d_), 0.0);
 }
 
-double CP_Planning::CoM_dynamics(double cxi, double xc)
+double WalkPlanner::CoM_dynamics(double cxi, double xc)
 {
     // Input: cxi: capture point input, xc: CoM position
     double d_xc;
@@ -89,14 +87,14 @@ double CP_Planning::CoM_dynamics(double cxi, double xc)
     return d_xc;
 }
 
-double CP_Planning::CP_dynamics (double p, double cxi)
+double WalkPlanner::CP_dynamics (double p, double cxi)
 {
     double d_cxi;
     d_cxi = this->w*(cxi - p);
     return  d_cxi;
 }
 
-void CP_Planning::computeCoM(double cxi_x, double cxi_y)
+void WalkPlanner::computeCoM(double cxi_x, double cxi_y)
 {
     d_xc_ = CoM_dynamics(cxi_x, this->xc_);
     d_yc_ = CoM_dynamics(cxi_y, this->yc_);
@@ -104,7 +102,7 @@ void CP_Planning::computeCoM(double cxi_x, double cxi_y)
     yc_ += d_yc_*dt_;
 }
 
-void CP_Planning::computeCP (double zmp_x, double zmp_y)
+void WalkPlanner::computeCP (double zmp_x, double zmp_y)
 {
     double d_cxi_x{0}, d_cxi_y{0};
     d_cxi_x = CP_dynamics(zmp_x, this->cxi_x_);
@@ -114,7 +112,7 @@ void CP_Planning::computeCP (double zmp_x, double zmp_y)
     this->cxi_y_ += d_cxi_y*dt_;
 }
 
-void CP_Planning::planWalking (MyGaitScheduler &gait_scheduler, JoyStickInterpreter &joyStick)
+void WalkPlanner::planWalking (MyGaitScheduler &gait_scheduler, JoyStickInterpreter &joyStick)
 {
     // gait_scheduler: provide the gait phase variable
     // joyStick: provide the walking velocity
@@ -127,21 +125,6 @@ void CP_Planning::planWalking (MyGaitScheduler &gait_scheduler, JoyStickInterpre
     this->step_length = std::clamp(vx * t_swing, -max_step_length, max_step_length);
     auto phi = gait_scheduler.phi; // phase variable
 
-
-    // On every leg-state transition (edge-triggered: leg_state_ only differs
-    // from gait_scheduler.legState on the one tick the transition happens),
-    // re-anchor the boundary-value blend at the CP's current position and
-    // aim it at the new stance side, advancing the forward reference by one
-    // step. Target depends only on the NEW state, not the old one -- DSt is
-    // never a transition target here (only the initial state), so only
-    // LSt/RSt need handling. cxi_yd_'s sign matches the original,
-    // validated-correct convention (see git history / HEAD's version of
-    // this file) -- a session-internal edit briefly flipped these signs
-    // based on a mistaken "previously inverted" assumption, which actually
-    // made the CoM shift toward the SWINGING leg's side instead of the
-    // stance leg's (confirmed by observed runtime behavior: the foot that
-    // lifts is the one the CoM was shifting toward, i.e. exactly backwards
-    // and unsupported). Reverted back to match HEAD.
     if (gait_scheduler.legState != leg_state_ &&
         (gait_scheduler.legState == LegState::LSt || gait_scheduler.legState == LegState::RSt))
     {
@@ -158,40 +141,24 @@ void CP_Planning::planWalking (MyGaitScheduler &gait_scheduler, JoyStickInterpre
     if (phi < 1.0)
     {
         const double b = std::pow(e, this->w * this->t_swing);
-        px_d_ = (cxi_xd_ - b*cxi_x0_)/(1-b);
-        py_d_ = (cxi_yd_ - b*cxi_y0_)/(1-b);
+        zmp_x_d_ = (cxi_xd_ - b*cxi_x0_)/(1-b);
+        zmp_y_d_ = (cxi_yd_ - b*cxi_y0_)/(1-b);
     }
     else
     {
-        px_d_ = cxi_xd_;
-        py_d_ = cxi_yd_;
+        zmp_x_d_ = cxi_xd_;
+        zmp_y_d_ = cxi_yd_;
     }
 
     // compute Capture Point
-    this->computeCP(px_d_, py_d_);
+    this->computeCP(zmp_x_d_, zmp_y_d_);
 
     // calculate CoM
     this->computeCoM(cxi_x_, cxi_y_);
 
-    // NOT delayed like planWarmingUp() -- the 1-cycle swing delay only
-    // solves warm-up's specific problem (lifting before ANY weight has
-    // shifted off a static double-support start, with no momentum to carry
-    // the transfer). Steady walking has no such problem: cxi_xd_ advances by
-    // step_length every cycle regardless of delay, so pairing the swing with
-    // a one-cycle-STALE leg_state_ means each foot only gets to step every
-    // OTHER cycle while the CoM reference advances every cycle -- the CoM
-    // reference permanently outruns the feet by a growing gap ("base moving
-    // faster than the foot step").
-    //
-    // Swing foot: one cycle behind the CoM phase, as in planWarmingUp(). During
-    // cycle k the ZMP stays where the CP started, i.e. over the side targeted
-    // in cycle k-1, so the free foot is oppositeLeg(leg state of cycle k-1).
-    // In steady state that equals the current leg state (states alternate);
-    // only the first cycle differs: no previous target, so no swing (DSt)
-    // while the CoM makes its first shift onto the stance foot.
     if (gait_scheduler.legState != this->leg_state_)
         leg_state_swing_ = oppositeLeg(this->leg_state_);
-    phi_swing = phi;
+    phi_CoM = phi;
     this->leg_state_ = gait_scheduler.legState;
 
     return;

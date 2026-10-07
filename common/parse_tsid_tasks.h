@@ -54,6 +54,11 @@ public:
     void updateBaseOrientationReference(const pinocchio::Data &data);
 
     // ---- Swing foot / contact switching ("swing_foot_task:" YAML block) ----
+    // Call every control step with the foot that should be in the air (empty:
+    // all feet planted). Lifts / plants feet only when their state changes, so
+    // it is safe to call repeatedly with the same value.
+    void setSwingFoot(tsid::InverseDynamicsFormulationAccForce &tsid, const std::string &air_frame,
+                      const pinocchio::Data &data);
     // Lift-off: unload the foot's contact over contact_transition_time (TSID
     // ramps its max force to zero, then removes it) and add its swing task
     void startSwing(tsid::InverseDynamicsFormulationAccForce &tsid, const std::string &frame_name);

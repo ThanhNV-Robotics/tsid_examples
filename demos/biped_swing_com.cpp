@@ -146,10 +146,7 @@ int main(int argc, char **argv) {
   MyGaitScheduler gait_scheduler(Tswing, dt);
   CP_Planning cp_planner (dt, robot.com(data)[2], hip_width);
 
-  // true: the swing foot is lifted (contact removed, swing task tracks the
-  // planned trajectory). false: footsteps are only planned and plotted, both
-  // feet stay planted.
-  const bool enable_swing = true;
+
 
   // Walking speed command (YAML "walking_command:" block)
   const YAML::Node walk_cfg = YAML::LoadFile(TSID_CONFIG_PATH)["walking_command"];
@@ -160,7 +157,7 @@ int main(int argc, char **argv) {
   // Swing-foot planner. The step length follows the vx command (zero command
   // = step in place).
   FootPlacement foot_placement(TSID_CONFIG_PATH, robot);
-  foot_placement.openLoopFootsteps = !enable_swing; // chain planned steps while the feet stay planted
+
   cp_planner.max_step_length = foot_placement.maxStepLength;
   const pinocchio::FrameIndex lf_id = robot.model().getFrameId(foot_placement.leftFootFrame);
   const pinocchio::FrameIndex rf_id = robot.model().getFrameId(foot_placement.rightFootFrame);
@@ -243,8 +240,6 @@ int main(int argc, char **argv) {
   RobotSensor robot_sensors;
   bool startWalking = false;
   bool qp_failed = false;
-  std::string swing_frame;          // frame of the foot currently in the air, empty in double support
-  Matrix3d swing_R = Matrix3d::Identity(); // swing foot orientation target during the swing
   // Nominal foot orientations (flat, standing yaw) captured when walking
   // starts; every swing returns the foot to it, so yaw slip of the stance foot
   // cannot accumulate over the steps
@@ -318,37 +313,22 @@ int main(int argc, char **argv) {
         // one cycle behind the CoM). Uses the kinematics of the previous step.
         foot_placement.StepSwingPlanning(state, tsid.data(), joystick, cp_planner);
 
-        if (enable_swing) {
-          // Contact switch whenever the swinging foot changes: the landing
-          // foot gets its contact back, the lifting foot loses it
-          const std::string new_swing = foot_placement.isSwinging() ? foot_placement.getSwingFrameName() : "";
-          if (new_swing != swing_frame) {
-            if (!swing_frame.empty() && task_parser.isSwinging(swing_frame)) {
-              task_parser.endSwing(tsid, swing_frame, tsid.data());
-              std::printf("[Swing] t=%.3f touchdown %s (end of phase)\n", t, swing_frame.c_str());
-            }
-            if (!new_swing.empty()) {
-              swing_R = foot_placement.isLeftSwing() ? R_nominal_lf : R_nominal_rf;
-              task_parser.startSwing(tsid, new_swing);
-              std::printf("[Swing] t=%.3f liftoff %s\n", t, new_swing.c_str());
-            }
-            swing_frame = new_swing;
-          }
-          // Early touchdown: once past mid-swing, plant the foot as soon as its
-          // touch sensor reports contact instead of pushing it further toward
-          // the stretched (below-ground) target until the phase ends
-          if (!swing_frame.empty() && task_parser.isSwinging(swing_frame) && foot_placement.phi > 0.5) {
-            const bool touching = foot_placement.isLeftSwing() ? state.contact_flags[0] : state.contact_flags[1];
-            if (touching) {
-              task_parser.endSwing(tsid, swing_frame, tsid.data());
-              std::printf("[Swing] t=%.3f touchdown %s (early, phase %.2f)\n", t, swing_frame.c_str(),
-                          foot_placement.phi);
-            }
-          }
-          if (!swing_frame.empty() && task_parser.isSwinging(swing_frame)) {
-            task_parser.setSwingReference(swing_frame, foot_placement.getSwingDesPos(),
-                                          foot_placement.getSwingDesVel(), foot_placement.getSwingDesAcc(), swing_R);
-          }
+        // The foot that should be in the air right now: the planned swing foot,
+        // until its touch sensor reports contact after mid-swing (early
+        // touchdown; it then stays planted for the rest of the cycle)
+        const bool left_swing = foot_placement.isLeftSwing();
+        const bool touched = foot_placement.phi > 0.5 &&
+                             (left_swing ? state.contact_flags[0] : state.contact_flags[1]);
+        const std::string air_foot =
+            (foot_placement.isSwinging() && !touched) ? foot_placement.getSwingFrameName() : "";
+
+        // Remove / add contacts and swing tasks to match
+        task_parser.setSwingFoot(tsid, air_foot, tsid.data());
+
+        // Swing target: planned trajectory, foot flat with its nominal yaw
+        if (!air_foot.empty()) {
+          task_parser.setSwingReference(air_foot, foot_placement.getSwingDesPos(), foot_placement.getSwingDesVel(),
+                                        foot_placement.getSwingDesAcc(), left_swing ? R_nominal_lf : R_nominal_rf);
         }
       }
 

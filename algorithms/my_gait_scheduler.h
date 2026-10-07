@@ -6,6 +6,7 @@
 #include "data_type.h"
 #include "joystick_interpreter.h"
 #include "cheat_state_estimator.h"
+
 class MyGaitScheduler {
 public:
     bool isIni{false};

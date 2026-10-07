@@ -4,7 +4,7 @@
 #include "joystick_interpreter.h"
 #include "my_gait_scheduler.h"
 
-class CP_Planning
+class WalkPlanner
 {
     public:
         const double g = 9.81; //gravity constant
@@ -13,11 +13,14 @@ class CP_Planning
         double w{0.0};
         double step_length{0.0}; // only set by planWalking(); stays 0 during warm-up
         double max_step_length{0.1}; // |step_length| limit, keep equal to FootPlacement::maxStepLength
-        double phi_swing{0.0};
+        double phi_CoM{0.0}; // CoM phase variable
+        double phi_Lfeet{0.0}; // left feet phase variable
+        double phi_Rfeet{0.0}; // right feet phase variable
+
         LegState leg_state_swing_{LegState::DSt};
 
         double xBias{0.0}, yBias{0.0};
-        CP_Planning (const double dtIn, const double zIn, double wd_hipIn);
+        WalkPlanner (const double dtIn, const double zIn, double wd_hipIn);
         
         double CoM_dynamics (double cxi, double xc); // dx = f(x,u)
         double CP_dynamics (double p, double cxi);
@@ -43,7 +46,7 @@ class CP_Planning
         double cxi_x_, cxi_y_, cxi_xd_, cxi_yd_; // capture point
         double cxi_x0_, cxi_y0_;
 
-        double px_d_, py_d_; // desired zmp 
+        double zmp_x_d_, zmp_y_d_; // desired zmp 
         LegState leg_state_;
 
 };

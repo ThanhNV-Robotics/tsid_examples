@@ -352,6 +352,21 @@ tsidTaskParser::ContactInfo *tsidTaskParser::findContactInfo(const std::string &
     return nullptr;
 }
 
+void tsidTaskParser::setSwingFoot(tsid::InverseDynamicsFormulationAccForce &tsid, const std::string &air_frame,
+                                  const pinocchio::Data &data)
+{
+    for (auto &info : m_contact_infos) {
+        const bool should_swing = (info.frame_name == air_frame);
+        if (should_swing && !info.swinging) {
+            startSwing(tsid, info.frame_name);
+            std::cout << "[Swing] liftoff " << info.frame_name << std::endl;
+        } else if (!should_swing && info.swinging) {
+            endSwing(tsid, info.frame_name, data);
+            std::cout << "[Swing] touchdown " << info.frame_name << std::endl;
+        }
+    }
+}
+
 void tsidTaskParser::startSwing(tsid::InverseDynamicsFormulationAccForce &tsid, const std::string &frame_name)
 {
     ContactInfo *info = findContactInfo(frame_name);

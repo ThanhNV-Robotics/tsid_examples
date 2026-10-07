@@ -106,5 +106,5 @@ foot_placement: # swing-foot planner (algorithms/foot_placement.h); every key is
   right_foot_frame: "right_ankle_pitch_link"
 
 walking_command: # joystick command used by the walking demos
-  vx: 0.1 # forward speed [m/s]; 0 = step in place
+  vx: 0.0 # forward speed [m/s]; 0 = step in place
   ramp_time: 1.0 # time to ramp the speed command from 0 to vx [s]
