@@ -25,11 +25,14 @@ Cheat_StateEstimator::estimate()   base pose/twist from the free joint (ground t
 utils::robotStateToPinocchio()     q = [p, quat(x,y,z,w), qj], v = [v_B, w_B, dqj]
   ▼
 Planners
-  MyGaitScheduler                   gait phase phi, leg state (LSt / RSt / DSt)
-  CP_Planning::planWalking()        capture point, desired ZMP, CoM pos/vel/acc
-  FootPlacement::StepSwingPlanning  footstep + cycloid swing trajectory (pos/vel/acc)
+  WalkPlanner::planWalking()        stance leg, step phase, touchdown detection,
+                                    capture point, desired ZMP, CoM pos/vel/acc,
+                                    next foothold (planned in the stance-ankle frame)
+  FootPlacement::StepSwingPlanning  cycloid swing trajectory (pos/vel/acc) to the
+                                    walk planner's foothold
   ▼
 tsidTaskParser                      builds tasks/contacts from YAML, contact switching
+                                    on the walk planner's step event
   ▼
 InverseDynamicsFormulationAccForce::computeProblemData() → HQP
 solver (eiquadprog-fast)            → dv, f
@@ -40,14 +43,13 @@ tsid.getActuatorForces()            → tau → sim.setControl(tau)
 |---|---|
 | Simulator, viewer, real-time plots, CoM / sphere markers | [sim_interface/Robot_Simulator.h](sim_interface/Robot_Simulator.h) |
 | Ground-truth state estimator | [algorithms/cheat_state_estimator.h](algorithms/cheat_state_estimator.h) |
-| Gait phase and leg state | [algorithms/my_gait_scheduler.h](algorithms/my_gait_scheduler.h) |
-| Capture-point CoM / ZMP planner | [algorithms/CP_Planning.h](algorithms/CP_Planning.h) |
-| Footstep and swing trajectory | [algorithms/foot_placement.h](algorithms/foot_placement.h) |
+| Walk planner: step timing, CoM / CP / ZMP, footholds (design note: [walk_planner.md](walk_planner.md)) | [algorithms/walk_planner.h](algorithms/walk_planner.h) |
+| Swing-foot trajectory | [algorithms/foot_placement.h](algorithms/foot_placement.h) |
 | YAML → TSID tasks, contacts, swing switching | [common/parse_tsid_tasks.h](common/parse_tsid_tasks.h) |
 | Shared data types | [common/data_type.h](common/data_type.h) |
 | CSV logger | [common/data_logger.h](common/data_logger.h) |
 | IK, quintic trajectory, state conversion | [utils/utils.h](utils/utils.h) |
-| Demos | [demos/biped_standing.cpp](demos/biped_standing.cpp), [demos/biped_swing_com.cpp](demos/biped_swing_com.cpp) |
+| Demos | [demos/biped_standing.cpp](demos/biped_standing.cpp), [demos/biped_walking.cpp](demos/biped_walking.cpp) |
 
 ---
 
@@ -97,8 +99,8 @@ Notes, verified in the TSID source:
 
 $$
 \begin{aligned}
-J(x) =\; & w_{com}\,\lVert S_{xy}(J_{com}\dot v + \dot J_{com} v - \ddot c^*)\rVert^2 \\
- + & w_{base}\,\lVert S_{rp}(J_{base}\dot v + \dot J_{base} v - a^*_{base})\rVert^2 \\
+J(x) =\; & w_{com}\,\lVert S_{com}(J_{com}\dot v + \dot J_{com} v - \ddot c^*)\rVert^2 \\
+ + & w_{base}\,\lVert S_{base}(J_{base}\dot v + \dot J_{base} v - a^*_{base})\rVert^2 \\
  + & w_{swing}\,\lVert J_{sw}\dot v + \dot J_{sw} v - a^*_{sw}\rVert^2 \quad\text{(only while a foot is in the air)}\\
  + & w_{post}\,\lVert \dot v_j - \ddot q^*_j\rVert^2 \\
  + & w_{reg}\sum_{feet}\lVert W(G f - f_{ref})\rVert^2 + \varepsilon\lVert x\rVert^2
@@ -108,11 +110,14 @@ $$
 Every motion task uses a PD law with feedforward,
 $a^* = a_{ref} + K_p(x_{ref}-x) + K_d(\dot x_{ref}-\dot x)$:
 
+$S_{com}$ and $S_{base}$ are the task masks from the YAML.
+
 | Task | Frame / mask | Kp | Weight |
 |---|---|---|---|
-| CoM | x, y only (`mask [1,1,0]`) | 30 | 5.5 |
-| Base orientation | `link0_torso`, roll + pitch only | 10 | 1.0 |
-| Swing foot (`TaskSE3Equality`) | `*_ankle_pitch_link`, full 6D | 100 | 10 |
+| CoM | x, y, z (`mask [1,1,1]`) | 100 | 0.5 |
+| Base orientation | `link0_torso`, roll + pitch + yaw (`mask [0,0,0,1,1,1]`) | 10 | 1.0 |
+| Swing foot (`TaskSE3Equality`) | `*_ankle_pitch_link`, full 6D | 50 | 10 |
+| Contact (`Contact6d` motion part) | `*_ankle_pitch_link`, 6D | 5 (Kd 4.5) | constraint |
 | Joint posture | 12 joints | 30–120 (per joint) | 0.001 |
 | Force regularization | foot wrench, $W=\mathrm{diag}(1,1,10^{-3},2,2,2)$, $f_{ref}=0$ | — | 1e-3 |
 
@@ -126,7 +131,7 @@ $H = \sum_i 2w_i A_i^\top A_i + \varepsilon I$, $g = -\sum_i 2w_i A_i^\top b_i$.
 TSID does **not** use null-space projection. `eiquadprog` solves only two
 levels: hard constraints (level 0) and one weighted cost (level 1).
 Level-1 tasks compete through their weights, so for example the CoM task
-(5.5) dominates posture (0.001). Strict multi-level priorities would need a
+(0.5) dominates posture (0.001). Strict multi-level priorities would need a
 cascade of QPs or a hybrid scheme (OpenLoong-style null-space kinematics +
 dynamics QP), which this project does not use.
 
@@ -137,7 +142,28 @@ case about 0.8 ms, so well inside the 1 ms period.
 
 ## 3. Planning
 
-### 3.1 Capture-point CoM / ZMP planner
+`WalkPlanner` ([algorithms/walk_planner.h](algorithms/walk_planner.h)) plans
+the CoM, the capture point (CP), the ZMP and the footholds, and decides the
+step timing. The full design is in [walk_planner.md](walk_planner.md); this
+section summarizes what is implemented.
+
+### 3.1 Local planning frames
+
+The plan is computed in a frame anchored to the robot, not in the world frame,
+so landing errors and slip don't accumulate:
+
+| Phase | Frame origin | Frame axes |
+|---|---|---|
+| Initial CoM shift (both feet down) | pelvis at the start of walking | reference heading `ref_theta` |
+| Single support | stance ankle, measured on entering the step | stance foot yaw |
+
+The frame is frozen for the whole phase. On every switch, `reanchor()`
+re-expresses the CoM, CP and ZMP in the new frame (same physical point, new
+coordinates), so the references stay continuous. The world-frame getters
+(`getCoMrefW()`, `getZMPrefW()`, `getNextFootW()`, …) convert back for TSID,
+the logs and the viewer.
+
+### 3.2 Capture-point CoM / ZMP plan
 
 LIPM with $w = \sqrt{g/z_c}$, capture point $\xi = c + \dot c / w$:
 
@@ -145,35 +171,52 @@ $$
 \dot \xi = w(\xi - p),\qquad \dot c = w(\xi - c),\qquad \ddot c = w^2(c - p)
 $$
 
-At the start of each gait cycle the planner picks a CP target $\xi_d$ (one
-step forward, on the next stance side) and holds the ZMP constant so that the
-CP arrives exactly at $\xi_d$ at the end of the cycle:
+Each phase holds the ZMP constant so that the CP goes from $\xi_0$ (captured
+once when the phase starts) to the target $\xi_d$ at the end of the phase,
+$T$ = `Tswing`:
 
 $$
 p = \frac{\xi_d - b\,\xi_0}{1-b},\qquad b = e^{wT}
 $$
 
-Because $b \approx 67$ for $T = 1$ s, $p \approx \xi_0$: during cycle $k$ the
-ZMP stays where the CP **started**, i.e. on the side targeted in cycle $k-1$.
-That is why the swing leg is delayed by one cycle (section 4.4).
+- **Initial shift** (1 step duration, both feet down): $\xi_d$ is over the
+  left foot, so the left leg stands first and the right foot swings first.
+- **Single support:** $\xi_d$ is the periodic solution for a ZMP at the
+  stance ankle,
+  $\xi_{d,x} = s\,\frac{b}{b-1}$, $\xi_{d,y} = y_f\,\frac{b}{b+1}$, with $s$ =
+  `step_length` = `vx * Tswing` (clamped to `max_step_length`) and $y_f = \mp$
+  `wd_hip`. In steady walking the ZMP then stays at the ankle.
+- **ZMP clamp:** in the stance-ankle frame the sole is a box, so the ZMP is
+  simply clamped to x ∈ [−0.04, 0.12], |y| ≤ 0.02 (the URDF sole box minus a
+  1 cm margin; YAML `sole_x_min`, `sole_x_max`, `sole_y_half`). This keeps the
+  planned ZMP on the sole by construction.
 
-Forward progress: the CP target advances `step_length = vx * t_swing` per
-cycle, so the CoM moves at the commanded speed.
+### 3.3 Step timing and touchdown
 
-### 3.2 Footstep and swing trajectory
+The stance leg is the planner's decision (`getStanceLeg()`: `LSt` = left
+stands, right swings). A step ends, and the other leg becomes stance, when:
 
-`FootPlacement` lands the swing foot relative to the **stance foot**:
+- **early touchdown:** the swing foot lifted, is back in contact, and the
+  phase is ≥ `touchdown_phase_min` (0.7); or
+- **end of the step:** the phase reaches 1.
+
+`stanceChanged()` is true for exactly one tick at that moment; the demo uses
+it to plant the landed foot and lift the other one (section 4.5).
+
+### 3.4 Footholds and swing trajectory
+
+The next foothold is planned relative to the stance ankle, along the
+reference heading (the stance foot's yaw error is rotated out, so the steps
+don't follow a yawed foot):
 
 $$
-p_{land} = p_{stance} + R_z(\psi_{cmd})\begin{bmatrix} v_x T \\ \pm w_{stance}\end{bmatrix},
+p_{land} = R(-\Delta\psi)\begin{bmatrix} s \\ \mp w_{stance}\end{bmatrix},
 \qquad z_{land} = z_{stance} + z_{offset}
 $$
 
-with $\psi_{cmd}$ the joystick heading and `stepLength = vx * tSwing`
-clamped to `max_step_length`. A zero command steps in place.
-
-The swing path is a cycloid with a cosine height bump, $\phi\in[0,1]$,
-$\dot\phi = 1/T$:
+`FootPlacement` takes the swing leg, phase and foothold from the walk planner
+(`StepSwingPlanning(..., walk_planner)`) and generates a cycloid with a cosine
+height bump, $\phi\in[0,1]$, $\dot\phi = 1/T$:
 
 $$
 c(\phi) = \frac{2\pi\phi - \sin 2\pi\phi}{2\pi},\qquad
@@ -230,24 +273,27 @@ and comparing planned vs. measured signals.
 ### 4.4 CoM / ZMP planning
 
 - **CoM feedforward is essential.** The CoM task receives the planned CoM
-  velocity and acceleration (`getCoMvelRef()`, `getCoMaccRef()`,
+  velocity and acceleration (`getCoMvelRefW()`, `getCoMaccRefW()`,
   $\ddot c = w^2(c-p)$). With zero reference derivatives the Kd term brakes
   every planned motion and the real CoM lags far behind the plan (±0.025 m
   instead of ±0.13 m). With feedforward the error is a few mm.
 - **Seed the capture point.** `setInitCom()` sets the CP to the CoM (robot at
-  rest) and recomputes $w$. Otherwise the CP stays at world (0,0) and drags
-  the CoM reference there at the start of walking.
-- **Lateral width = measured stance width.** `cp_planner.wd_hip` is set to the
-  actual distance between the planted feet when walking starts, so the ZMP
-  targets lie on the feet.
-- **One-cycle swing delay.** `planWalking()` publishes
-  `leg_state_swing_ = oppositeLeg(previous leg state)` and `phi_swing`. In
-  steady state that is the same leg as the current state; the first cycle has
-  no swing (DSt), which gives the CoM time to move onto the first stance foot
-  before anything lifts. With this, the planned ZMP is inside the stance sole
-  100 % of every swing.
-- `gait_scheduler.firstleg = RSt`: the first cycle shifts the CoM toward the
-  left foot, so the right foot swings first.
+  rest) and recomputes $w$. Otherwise the CP stays at (0, 0) and drags the
+  CoM reference there at the start of walking.
+- **CoM height = height above the floor.** $z_c$ sets $w = \sqrt{g/z_c}$. The
+  plan's xy is pelvis- or ankle-relative, but $z_c$ must stay the CoM height
+  above the floor; a pelvis-relative z (≈ 0 or negative) gave a huge or NaN
+  $w$ and a frozen CoM reference.
+- **Standing CoM reference z.** `computeSupportCenter()` averages the ankle
+  positions, so its z is the ankle height. The demos replace it with the
+  current CoM height; otherwise enabling the CoM z mask pulls the CoM to the
+  floor and the robot falls right away.
+- **Phase increment is `dt / Tswing`**, and $\xi_0$ is captured **once** per
+  phase. Recomputing it every tick shrinks the remaining time to zero and the
+  plan ends in one tick.
+- **Lateral width = measured stance width.** `walk_planner.wd_hip` is set to
+  the actual distance between the planted feet when walking starts, so the
+  lateral targets lie on the feet.
 
 ### 4.5 Swing foot and contact switching
 
@@ -264,10 +310,17 @@ Handled by `tsidTaskParser::startSwing()` / `endSwing()` /
   same contact object gave the landed foot a ~0 N limit; it could not carry
   the robot once the other foot lifted, and the robot fell on every second
   step. `endSwing()` now calls `setMaxNormalForce(f_max)`.
-- **Early touchdown from the touch sensor.** After mid-swing ($\phi > 0.5$)
-  the foot is planted as soon as its touch sensor reports contact, instead of
-  pushing it further toward the (possibly below-ground) target until the phase
-  ends, which tilted the body.
+- **Switching on the walk planner's step event.** On `stanceChanged()`,
+  `endSwing()` plants the foot that just landed and `startSwing()` lifts the
+  other one. Touchdown is detected by the planner (section 3.3), so an early
+  contact plants the foot instead of pushing it further toward the (possibly
+  below-ground) target, which tilted the body.
+- **Never wait for a late touchdown.** An earlier version held the phase at 1
+  until the swing foot reported contact. With `z_offset = 0` the foot reached
+  the floor without loading it (touch force < 20 N), the CP kept diverging
+  with the ZMP on the old stance foot, and the CoM reference ran 21 cm past
+  the landing foot in 0.3 s: the robot fell. The step now always ends at
+  $\phi = 1$.
 - **Swing references in world-aligned axes.** `TaskSE3Equality` in local
   mode expects the reference velocity/acceleration in world-aligned axes
   (it applies `actInv` itself); `FootPlacement` outputs exactly that.
@@ -275,16 +328,17 @@ Handled by `tsidTaskParser::startSwing()` / `endSwing()` /
   (flat, standing yaw captured when walking starts), not its liftoff
   orientation. Otherwise yaw slip of the stance foot accumulates step after
   step (feet ended up at +15° / −22° and the robot fell).
-- **`z_offset` is a touchdown stretch relative to the ground** (stance foot
-  height), not to the liftoff height; in the planned footstep chain a landed
-  foot is recorded at ground height, so a negative offset cannot make the
-  steps sink.
+- **`z_offset` is a touchdown stretch relative to the ground** (stance ankle
+  height), not to the liftoff height. A small negative value (e.g. −0.005)
+  makes the foot actually load the floor at the end of the swing, so the
+  touch sensor sees the contact.
 
 ### 4.6 Base
 
-- **Base orientation task on roll and pitch only.** Reduced base tilt about
-  3× during CoM sway. Holding yaw as well made things worse while the feet
-  could still slip.
+- **Base orientation task.** Controlling roll and pitch reduced base tilt
+  about 3× during CoM sway. Holding yaw as well made things worse while the
+  feet could still slip; with the higher foot friction (4.7) and the
+  heading-tracking walk planner, the current config controls yaw too.
 
 ### 4.7 Simulation
 
@@ -304,24 +358,30 @@ Handled by `tsidTaskParser::startSwing()` / `endSwing()` /
   [scripts/plot_joint_control.py](scripts/plot_joint_control.py) or pandas.
 - **Viewer markers:** yellow sphere = measured CoM; red dot + line = desired
   ZMP; green sphere = swing-foot target; blue spheres = liftoff / landing.
-- **Real-time plots:** left/right leg torques, CP planner signals, swing foot
-  height.
-- **Plan-only mode:** `enable_swing = false` keeps both feet planted and
-  chains the planned footsteps (`openLoopFootsteps`), to check the planner
-  signals without moving the robot.
+- **Real-time plots** (world frame): walk planner CoM reference vs. measured
+  CoM, walking phases (`Phi-CoM`, `Phi-Lfeet`, `Phi-Rfeet`); leg torques and
+  swing foot height are available but commented out in the demo.
+- **Plan-only mode:** `enable_swing = false` keeps both feet planted; the
+  walk planner still alternates the stance leg every `Tswing`, to check the
+  CoM / ZMP plan without moving the feet.
 
 ---
 
 ## 6. Status and known limitations
 
-- Standing, CoM swaying and stepping in place are stable; walking at
-  `vx = 0.05` m/s works for about 24 s (~1.2 m) before it falls.
-- **The CP planner aims at fixed world targets** (`yBias ± wd_hip/2`), not at
-  the measured stance foot. Small landing errors make the feet drift sideways
-  (~0.5 mm/step) until the ZMP leaves the sole. Next step: base the CP/ZMP
-  targets on the actual stance foot.
-- **Base yaw is free** and swings ±4° per step; combined with drift it grows
-  until the robot twists over.
+- Standing, CoM swaying and stepping in place were stable with the previous
+  world-frame planner (`CP_Planning` + `MyGaitScheduler`, now removed), and
+  walking at `vx = 0.05` m/s worked for about 24 s (~1.2 m). Its main
+  limitation, fixed world CP targets that let the feet drift until the ZMP
+  left the sole, is what the local-frame `WalkPlanner` addresses.
+- **`WalkPlanner` is newly integrated.** The initial CoM shift and the first
+  single-support step work; the first test fell at the second step because of
+  the late-touchdown hold (section 4.5), which is now removed. Walking with it
+  has not been re-validated yet.
+- No double-support phase between steps: touchdown and the next lift-off
+  happen on the same tick; TSID's `contact_transition_time` (0.05 s) is the
+  only unloading time.
+- The plan assumes flat ground at z = 0 for the CoM height.
 - **Torque limits come from the URDF `effort` (1000 Nm)**, not the MuJoCo
   `ctrlrange` (±16…48 Nm); add `tau_max` to `actuation_bounds_task` in the YAML
   to make TSID plan with the real limits.

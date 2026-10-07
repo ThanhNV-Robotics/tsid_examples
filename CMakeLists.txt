@@ -36,7 +36,15 @@ list(APPEND CMAKE_PREFIX_PATH
 # -----------------------------------------------------------------------------
 find_package(Eigen3 REQUIRED)
 find_package(glfw3 REQUIRED)
-find_package(mujoco REQUIRED)
+# MuJoCo release tarballs ship no CMake config; fall back to /opt/mujoco
+find_package(mujoco CONFIG QUIET)
+if(NOT TARGET mujoco::mujoco)
+  find_library(MUJOCO_LIB mujoco PATHS /opt/mujoco/lib REQUIRED NO_DEFAULT_PATH)
+  add_library(mujoco::mujoco SHARED IMPORTED)
+  set_target_properties(mujoco::mujoco PROPERTIES
+    IMPORTED_LOCATION ${MUJOCO_LIB}
+    INTERFACE_INCLUDE_DIRECTORIES /opt/mujoco/include)
+endif()
 find_package(pinocchio REQUIRED)
 find_package(tsid QUIET)
 
@@ -113,11 +121,22 @@ add_library(sim_interface ALIAS core)
 # Executables (demos, tests, etc.)
 # -----------------------------------------------------------------------------
 
-# One executable per demos/*.cpp, named after the file (demos/foo.cpp -> foo)
-file(GLOB DEMO_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/demos/*.cpp)
-list(FILTER DEMO_SOURCES EXCLUDE REGEX " copy\\.cpp$")
-foreach(demo_src ${DEMO_SOURCES})
-  get_filename_component(demo_name ${demo_src} NAME_WE)
-  add_executable(${demo_name} ${demo_src})
-  target_link_libraries(${demo_name} PRIVATE core)
-endforeach()
+# One executable per demo. Comment out a block to skip building that demo.
+
+add_executable(biped_robot_leg demos/biped_robot_leg.cpp)
+target_link_libraries(biped_robot_leg PRIVATE core)
+
+add_executable(biped_standing demos/biped_standing.cpp)
+target_link_libraries(biped_standing PRIVATE core)
+
+add_executable(biped_walking demos/biped_walking.cpp)
+target_link_libraries(biped_walking PRIVATE core)
+
+add_executable(init_mujoco_glfw_ui demos/init_mujoco_glfw_ui.cpp)
+target_link_libraries(init_mujoco_glfw_ui PRIVATE core)
+
+add_executable(ur10_posturer_task demos/ur10_posturer_task.cpp)
+target_link_libraries(ur10_posturer_task PRIVATE core)
+
+add_executable(ur10e_tsid_control demos/ur10e_tsid_control.cpp)
+target_link_libraries(ur10e_tsid_control PRIVATE core)

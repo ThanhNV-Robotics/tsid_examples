@@ -120,6 +120,7 @@ int main(int argc, char **argv) {
   // Set reference for CoM task horizontally centred over all contact feet
   Vector3d com_ref = task_parser.computeSupportCenter(data, robot);
   com_ref.x() += 0.04; // sole centre is 4 cm ahead of the ankle
+  com_ref.z() = robot.com(data).z(); // hold the current CoM height (the support centre z is the ankle height)
   TrajectorySample com_sample(3);
   com_sample.setValue(com_ref);
   com_sample.setDerivative(Vector3d::Zero());

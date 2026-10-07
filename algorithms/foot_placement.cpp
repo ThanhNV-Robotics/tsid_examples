@@ -24,9 +24,11 @@ FootPlacement::FootPlacement(const std::string &yamlPath, const tsid::robots::Ro
 {
     // All parameters are optional; missing ones keep their defaults
     const YAML::Node root = YAML::LoadFile(yamlPath);
-    const YAML::Node fp = root["foot_placement"];
+    const YAML::Node wp = root["walk_planner"];
+    const YAML::Node fp = wp ? wp["foot_placement"] : YAML::Node();
     if (!fp) {
-        std::cout << "[FootPlacement] No 'foot_placement' block in " << yamlPath << ", using defaults" << std::endl;
+        std::cout << "[FootPlacement] No 'walk_planner: foot_placement:' block in " << yamlPath << ", using defaults"
+                  << std::endl;
     }
     readIfPresent(fp, "stepHeight", stepHeight);
     readIfPresent(fp, "stance_width", stanceWidth);
@@ -105,15 +107,6 @@ void FootPlacement::updateFromRobot(const RobotState &state, const pinocchio::Da
     hipPos_W.head<2>() += lateral;
 }
 
-Eigen::Vector2d FootPlacement::landingOffset_W() const
-{
-    // yOff_L is "inward": -y for the left foot, +y for the right foot
-    const double side = (legState == LegState::RSt) ? 1.0 : -1.0;
-    const Eigen::Vector2d off_L(xOff_L, -side * yOff_L);
-    const double c = std::cos(yawCur_), s = std::sin(yawCur_);
-    return Eigen::Vector2d(c * off_L.x() - s * off_L.y(), s * off_L.x() + c * off_L.y());
-}
-
 void FootPlacement::computeSwingTrajectory()
 {
     pDes_ = posStart_W;
@@ -145,74 +138,18 @@ void FootPlacement::computeSwingTrajectory()
     aDes_.z() = (ddbump + delta.z() * ddc) / T2;
 }
 
-void FootPlacement::planFootstep()
-{
-    // Step length from the commanded forward speed: the body advances one
-    // stepLength per swing, so its speed is stepLength / tSwing. Directions use
-    // the commanded heading, not the base yaw (wobbles while the CoM sways) or
-    // the foot yaw (the standing pose has the toes slightly out).
-    const double c = std::cos(heading_), s = std::sin(heading_);
-    const double vForward = c * desV_W.x() + s * desV_W.y();
-    stepLength = std::clamp(vForward * tSwing, -maxStepLength, maxStepLength);
-
-    // Land stepLength ahead of the stance foot and stanceWidth beside it;
-    // relative to the stance foot, so the feet leapfrog without drifting
-    const double side = (legState == LegState::RSt) ? 1.0 : -1.0; // +1: left foot swings
-    const Eigen::Vector2d step_L(stepLength, side * stanceWidth);
-    posDes_W.x() = posStance_W.x() + c * step_L.x() - s * step_L.y();
-    posDes_W.y() = posStance_W.y() + s * step_L.x() + c * step_L.y();
-    // Ground height = stance foot height (flat ground); zOff_W < 0 stretches the
-    // swing target below the ground so the foot surely makes contact
-    posDes_W.z() = posStance_W.z() + zOff_W;
-}
-
 void FootPlacement::StepSwingPlanning(const RobotState &state, const pinocchio::Data &data,
-                                      const MyGaitScheduler &gait_scheduler, const JoyStickInterpreter &joyStick)
+                                      const JoyStickInterpreter &joyStick, const WalkPlanner &walk_planner)
 {
-    updateFromRobot(state, data, gait_scheduler.legState, gait_scheduler.phi, gait_scheduler.tSwing, joyStick);
-    planFootstep();
+    // The walk planner's stance leg uses the same convention as legState
+    // (LSt: left stands, right swings; DSt: no swing)
+    updateFromRobot(state, data, walk_planner.getStanceLeg(), walk_planner.getSwingPhase(), walk_planner.t_swing,
+                    joyStick);
+    // Landing point planned by the walk planner (stance-ankle frame -> world);
+    // zOff_W < 0 stretches the target below the ground so the foot surely lands
+    posDes_W = walk_planner.getNextFootW();
+    posDes_W.z() += zOff_W;
+    stepLength = walk_planner.step_length;
     computeSwingTrajectory();
 }
 
-void FootPlacement::StepSwingPlanning(const RobotState &state, const pinocchio::Data &data,
-                                      const JoyStickInterpreter &joyStick, const CP_Planning &cp_planner)
-{
-    // Swing leg and phase as published by the CP planner (synchronous with the
-    // CoM in planWalking(), one cycle behind it in planWarmingUp())
-    updateFromRobot(state, data, cp_planner.leg_state_swing_, cp_planner.phi_swing, cp_planner.t_swing, joyStick);
-    planFootstep();
-    computeSwingTrajectory();
-}
-
-void FootPlacement::StepSwingPlanningRaibert(const RobotState &state, const pinocchio::Data &data,
-                                             const MyGaitScheduler &gait_scheduler, const JoyStickInterpreter &joyStick)
-{
-    updateFromRobot(state, data, gait_scheduler.legState, gait_scheduler.phi, gait_scheduler.tSwing, joyStick);
-    if (gait_scheduler.motionState == MotionState::WARM_UP) inPlaceOnly = true;
-    else if (gait_scheduler.motionState == MotionState::WALK) inPlaceOnly = false;
-
-    // Raibert heuristic (OpenLoong's getSwingPos()): land where the base will
-    // be at touchdown given its current velocity, plus feedback on the error
-    // to the commanded velocity
-    Eigen::Matrix3d KP = Eigen::Matrix3d::Zero(), Rz;
-    KP(0, 0) = kp_vx;
-    KP(1, 1) = kp_vy;
-    Rz << std::cos(yawCur_), -std::sin(yawCur_), 0,
-          std::sin(yawCur_),  std::cos(yawCur_), 0,
-          0, 0, 1;
-    KP = Rz * KP * Rz.transpose();
-    posDes_W = hipPos_W - KP * (desV_W - curV_W) + 0.5 * tSwing * curV_W + curV_W * (1 - phi) * tSwing;
-
-    // Yaw-rate correction: where the hip-offset point will be at touchdown
-    // given the current and commanded turning rate
-    const double thetaF = yawCur_ + theta0_ + omegaZ_W_ * (1 - phi) * tSwing + 0.5 * omegaZ_W_ * tSwing +
-                          kp_wz * (omegaZ_W_ - desWz_W);
-    posDes_W.x() += 0.5 * stanceWidth * (std::cos(thetaF) - std::cos(yawCur_ + theta0_));
-    posDes_W.y() += 0.5 * stanceWidth * (std::sin(thetaF) - std::sin(yawCur_ + theta0_));
-    posDes_W.head<2>() += landingOffset_W();
-    // Ground height = stance foot height (flat ground); zOff_W < 0 stretches the
-    // swing target below the ground so the foot surely makes contact
-    posDes_W.z() = posStance_W.z() + zOff_W;
-
-    computeSwingTrajectory();
-}

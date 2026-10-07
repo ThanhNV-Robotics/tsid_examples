@@ -10,10 +10,9 @@ Copyright (C) 2024-2025 Humanoid Robot (Shanghai) Co., Ltd.
 #include <string>
 #include <tsid/robots/robot-wrapper.hpp>
 
-#include "CP_Planning.h"
 #include "data_type.h"
 #include "joystick_interpreter.h"
-#include "my_gait_scheduler.h"
+#include "walk_planner.h"
 
 // Swing-foot planner: picks the landing position of the swing foot and
 // generates a cycloid swing trajectory (position, velocity, acceleration in
@@ -68,24 +67,10 @@ public:
 
     FootPlacement(const std::string &yamlPath, const tsid::robots::RobotWrapper &robot);
 
-    // Command-based footstep: the swing foot lands stepLength = vx_cmd * tSwing
-    // ahead of the stance foot (commanded heading) and stanceWidth to its side;
-    // a zero command steps in place.
-
-    // Swing leg and phase from the gait scheduler
+    // Swing leg, phase and landing point from the walk planner (stance leg,
+    // step phase, next foothold); the trajectory is the same cycloid
     void StepSwingPlanning(const RobotState &state, const pinocchio::Data &data,
-                           const MyGaitScheduler &gait_scheduler, const JoyStickInterpreter &joyStick);
-
-    // Swing leg and phase from the CP planner (leg_state_swing_, phi_swing,
-    // t_swing), so the swing foot stays in phase with the planned CoM:
-    // synchronous in planWalking(), one cycle behind the CoM shift in
-    // planWarmingUp()
-    void StepSwingPlanning(const RobotState &state, const pinocchio::Data &data,
-                           const JoyStickInterpreter &joyStick, const CP_Planning &cp_planner);
-
-    // Pure Raibert heuristic (OpenLoong's getSwingPos()), no CP preview
-    void StepSwingPlanningRaibert(const RobotState &state, const pinocchio::Data &data,
-                                  const MyGaitScheduler &gait_scheduler, const JoyStickInterpreter &joyStick);
+                           const JoyStickInterpreter &joyStick, const WalkPlanner &walk_planner);
 
     // ---- Swing-foot reference (world frame) ----
     const Eigen::Vector3d &getSwingDesPos() const { return pDes_; }
@@ -115,10 +100,6 @@ private:
     // changes, and computes the nominal foot position hipPos_W
     void updateFromRobot(const RobotState &state, const pinocchio::Data &data, LegState curLegState,
                          double phiIn, double tSwingIn, const JoyStickInterpreter &joyStick);
-    // Landing point stepLength ahead of the stance foot and stanceWidth to its side
-    void planFootstep();
-    // Body-frame landing offset (xOff_L, yOff_L) rotated into the world frame
-    Eigen::Vector2d landingOffset_W() const;
     // Cycloid from posStart_W to posDes_W with a stepHeight bump in z
     void computeSwingTrajectory();
 };

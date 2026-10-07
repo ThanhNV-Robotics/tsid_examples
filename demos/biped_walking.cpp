@@ -19,12 +19,11 @@
 #include "data_logger.h"           // CSV logging
 #include "data_type.h"             // RobotSensor, RobotState
 #include "joystick_interpreter.h"
-#include "my_gait_scheduler.h"
 #include "parse_tsid_tasks.h" // builds TSID contacts and tasks from YAML
 #include "utils.h"            // IK, trajectories, Pinocchio helpers
-#include "CP_Planning.h"
 #include "foot_placement.h"
 #include <yaml-cpp/yaml.h>
+#include "walk_planner.h"
 
 using namespace tsid;
 using namespace tsid::robots;
@@ -125,6 +124,7 @@ int main(int argc, char **argv) {
   // Set reference for CoM task horizontally centred over all contact feet
   Vector3d com_ref = task_parser.computeSupportCenter(data, robot);
   com_ref.x() += 0.04; // sole centre is 4 cm ahead of the ankle
+  com_ref.z() = robot.com(data).z(); // hold the current CoM height (the support centre z is the ankle height)
   TrajectorySample com_sample(3);
   com_sample.setValue(com_ref);
   com_sample.setDerivative(Vector3d::Zero());
@@ -143,13 +143,18 @@ int main(int argc, char **argv) {
 
 
   JoyStickInterpreter joystick(dt);
-  MyGaitScheduler gait_scheduler(Tswing, dt);
-  CP_Planning cp_planner (dt, robot.com(data)[2], hip_width);
+  // Unified walk planner: CoM / capture point / ZMP in the stance-ankle frame,
+  // step timing and touchdown detection, next foothold
+  WalkPlanner walk_planner (TSID_CONFIG_PATH, robot.com(data)[2]);
 
+  // true: the swing foot is lifted (contact removed, swing task tracks the
+  // planned trajectory). false: footsteps are only planned and plotted, both
+  // feet stay planted.
+  const bool enable_swing = true;
 
-
-  // Walking speed command (YAML "walking_command:" block)
-  const YAML::Node walk_cfg = YAML::LoadFile(TSID_CONFIG_PATH)["walking_command"];
+  // Walking speed command (YAML "walk_planner: foot_placement:" block)
+  const YAML::Node wp_cfg = YAML::LoadFile(TSID_CONFIG_PATH)["walk_planner"];
+  const YAML::Node walk_cfg = wp_cfg ? wp_cfg["foot_placement"] : YAML::Node();
   const double vx_cmd = (walk_cfg && walk_cfg["vx"]) ? walk_cfg["vx"].as<double>() : 0.0;
   const double vx_ramp_time = (walk_cfg && walk_cfg["ramp_time"]) ? walk_cfg["ramp_time"].as<double>() : 1.0;
   std::printf("[Walking] vx command %.3f m/s (ramp %.1f s)\n", vx_cmd, vx_ramp_time);
@@ -157,8 +162,7 @@ int main(int argc, char **argv) {
   // Swing-foot planner. The step length follows the vx command (zero command
   // = step in place).
   FootPlacement foot_placement(TSID_CONFIG_PATH, robot);
-
-  cp_planner.max_step_length = foot_placement.maxStepLength;
+  foot_placement.openLoopFootsteps = !enable_swing; // chain planned steps while the feet stay planted
   const pinocchio::FrameIndex lf_id = robot.model().getFrameId(foot_placement.leftFootFrame);
   const pinocchio::FrameIndex rf_id = robot.model().getFrameId(foot_placement.rightFootFrame);
 
@@ -203,16 +207,21 @@ int main(int argc, char **argv) {
 
   // Real-time plots
   // Right leg joint torques (commanded), one line per joint
-  auto tau_right_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
-                                                       "Right leg torque", 10.0);
-  tau_right_plot->setYLabel("Nm");
-  tau_right_plot->setLineWidth(2.0);
+  // auto tau_right_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
+  //                                                      "Right leg torque", 10.0);
+  // tau_right_plot->setYLabel("Nm");
+  // tau_right_plot->setLineWidth(2.0);
 
-  // Left leg joint torques (commanded), one line per joint
-  auto tau_left_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
-                                                      "Left leg torque", 10.0);
-  tau_left_plot->setYLabel("Nm");
-  tau_left_plot->setLineWidth(2.0);
+  auto phase_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
+                                                       "Walking Phase", 10.0);
+  phase_plot->setYLabel("Phase");
+  phase_plot->setLineWidth(2.0);
+
+  // // Left leg joint torques (commanded), one line per joint
+  // auto tau_left_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
+  //                                                     "Left leg torque", 10.0);
+  // tau_left_plot->setYLabel("Nm");
+  // tau_left_plot->setLineWidth(2.0);
   // Legend names: "left_knee_pitch_joint" -> "knee_pitch"
   vector<string> tau_left_names;
   for (int i = 0; i < robot.na() / 2; ++i) {
@@ -222,10 +231,10 @@ int main(int argc, char **argv) {
     tau_left_names.push_back(name);
   }
 
-  auto cp_planner_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
-                                                      "Capture Point Planner", 10.0);
-  cp_planner_plot->setYLabel("CoM X/Y");
-  cp_planner_plot->setLineWidth(2.0);
+  auto com_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
+                                                      "Walk Planner CoM", 10.0);
+  com_plot->setYLabel("CoM X/Y");
+  com_plot->setLineWidth(2.0);
 
   auto foot_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
                                                   "Swing Foot Planner", 10.0);
@@ -240,6 +249,8 @@ int main(int argc, char **argv) {
   RobotSensor robot_sensors;
   bool startWalking = false;
   bool qp_failed = false;
+  std::string swing_frame;          // frame of the foot currently in the air, empty in double support
+  Matrix3d swing_R = Matrix3d::Identity(); // swing foot orientation target during the swing
   // Nominal foot orientations (flat, standing yaw) captured when walking
   // starts; every swing returns the foot to it, so yaw slip of the stance foot
   // cannot accumulate over the steps
@@ -275,17 +286,16 @@ int main(int argc, char **argv) {
         startWalking = true;
         joystick.setMotionState(MotionState::WALK);
         joystick.setVxDesLPara(vx_cmd, vx_ramp_time);
-        // First cycle shifts the CoM toward the left foot (RSt target) with no
-        // swing; the right foot swings first, in the second cycle
-        gait_scheduler.firstleg = LegState::RSt;
-        gait_scheduler.start(joystick);
-        cp_planner.setInitCom(robot.com(data));
+        // The walk planner first shifts the CoM onto the left foot with both
+        // feet down, then starts stepping with the left leg as stance (the
+        // right foot swings first)
+
         // Nominal stance width = the actual distance between the planted feet,
         // used by both planners so the lateral targets lie on the feet
         foot_placement.stanceWidth =
             (robot.framePosition(data, lf_id).translation() - robot.framePosition(data, rf_id).translation())
                 .head<2>().norm();
-        cp_planner.wd_hip = foot_placement.stanceWidth;
+        walk_planner.wd_hip = foot_placement.stanceWidth;
         // Nominal foot orientations: flat (zero roll/pitch) with the standing yaw
         for (auto [fid, R_nom] : {std::pair<pinocchio::FrameIndex, Matrix3d *>{lf_id, &R_nominal_lf},
                                   std::pair<pinocchio::FrameIndex, Matrix3d *>{rf_id, &R_nominal_rf}}) {
@@ -300,35 +310,37 @@ int main(int argc, char **argv) {
       // ------------------------------------------------------------------------
       if (startWalking)
       {
-        gait_scheduler.step(state_estimator);
-        cp_planner.planWalking(gait_scheduler, joystick);
-        // CoM reference with the planned velocity and acceleration as
-        // feedforward (zero derivatives would make the Kd term brake the motion)
-        com_sample.setValue(cp_planner.getCoMref());
-        com_sample.setDerivative(cp_planner.getCoMvelRef());
-        com_sample.setSecondDerivative(cp_planner.getCoMaccRef());
+        walk_planner.planWalking(joystick, state_estimator, robot, data, Tswing);
+        // CoM reference (world frame) with the planned velocity and acceleration
+        // as feedforward (zero derivatives would make the Kd term brake the motion)
+        com_sample.setValue(walk_planner.getCoMrefW());
+        com_sample.setDerivative(walk_planner.getCoMvelRefW());
+        com_sample.setSecondDerivative(walk_planner.getCoMaccRefW());
         com_task->setReference(com_sample);
 
-        // Swing-foot plan; swing leg and phase from the CP planner (phi_swing,
-        // one cycle behind the CoM). Uses the kinematics of the previous step.
-        foot_placement.StepSwingPlanning(state, tsid.data(), joystick, cp_planner);
+        // Swing-foot trajectory: swing leg, phase and landing point from the
+        // walk planner. Uses the kinematics of the previous step.
+        foot_placement.StepSwingPlanning(state, tsid.data(), joystick, walk_planner);
 
-        // The foot that should be in the air right now: the planned swing foot,
-        // until its touch sensor reports contact after mid-swing (early
-        // touchdown; it then stays planted for the rest of the cycle)
-        const bool left_swing = foot_placement.isLeftSwing();
-        const bool touched = foot_placement.phi > 0.5 &&
-                             (left_swing ? state.contact_flags[0] : state.contact_flags[1]);
-        const std::string air_foot =
-            (foot_placement.isSwinging() && !touched) ? foot_placement.getSwingFrameName() : "";
-
-        // Remove / add contacts and swing tasks to match
-        task_parser.setSwingFoot(tsid, air_foot, tsid.data());
-
-        // Swing target: planned trajectory, foot flat with its nominal yaw
-        if (!air_foot.empty()) {
-          task_parser.setSwingReference(air_foot, foot_placement.getSwingDesPos(), foot_placement.getSwingDesVel(),
-                                        foot_placement.getSwingDesAcc(), left_swing ? R_nominal_lf : R_nominal_rf);
+        if (enable_swing) {
+          // Contact switch on the walk planner's step event. The planner
+          // detects the touchdown (swing foot back in contact late enough in
+          // the step, or the step timing out if it never lifted), so the
+          // landing foot gets its contact back and the other foot lifts off
+          if (walk_planner.stanceChanged()) {
+            if (!swing_frame.empty() && task_parser.isSwinging(swing_frame)) {
+              task_parser.endSwing(tsid, swing_frame, tsid.data());
+              std::printf("[Swing] t=%.3f touchdown %s\n", t, swing_frame.c_str());
+            }
+            swing_frame = foot_placement.getSwingFrameName();
+            swing_R = foot_placement.isLeftSwing() ? R_nominal_lf : R_nominal_rf;
+            task_parser.startSwing(tsid, swing_frame);
+            std::printf("[Swing] t=%.3f liftoff %s\n", t, swing_frame.c_str());
+          }
+          if (!swing_frame.empty() && task_parser.isSwinging(swing_frame)) {
+            task_parser.setSwingReference(swing_frame, foot_placement.getSwingDesPos(),
+                                          foot_placement.getSwingDesVel(), foot_placement.getSwingDesAcc(), swing_R);
+          }
         }
       }
 
@@ -371,8 +383,8 @@ int main(int argc, char **argv) {
                                        : foot_placement.isLeftSwing() ? 1.0 : -1.0);
       datalog.recItemData("swing_phase", foot_placement.phi);
       datalog.recItemData("step_length", foot_placement.stepLength);
-      datalog.recItemData("plan_com", Vector2d(cp_planner.xc_, cp_planner.yc_));
-      datalog.recItemData("plan_zmp", Vector2d(cp_planner.px_d_, cp_planner.py_d_));
+      datalog.recItemData("plan_com", Vector2d(walk_planner.getCoMrefW().head<2>()));
+      datalog.recItemData("plan_zmp", Vector2d(walk_planner.getZMPrefW().head<2>()));
       datalog.recItemData("swing_land", foot_placement.posDes_W);
       datalog.recItemData("swing_ref", foot_placement.getSwingDesPos());
       datalog.recItemData("swing_ref_vel", foot_placement.getSwingDesVel());
@@ -388,42 +400,48 @@ int main(int argc, char **argv) {
       // 6.6 Apply interactive user perturbations and step physics
       sim.stepPhysics();
     }
-    // right leg joints follow the 6 left leg joints in tau
-    for (int i = 0; i < robot.na() / 2; ++i) {
-      tau_right_plot->addPoint(tau_left_names[i], sim.time(), tau(robot.na() / 2 + i));
-    }
-    tau_right_plot->render();
+    // // right leg joints follow the 6 left leg joints in tau
+    // for (int i = 0; i < robot.na() / 2; ++i) {
+    //   tau_right_plot->addPoint(tau_left_names[i], sim.time(), tau(robot.na() / 2 + i));
+    // }
+    // tau_right_plot->render();
 
-    for (int i = 0; i < robot.na() / 2; ++i) {
-      tau_left_plot->addPoint(tau_left_names[i], sim.time(), tau(i));
-    }
-    tau_left_plot->render();
+    // for (int i = 0; i < robot.na() / 2; ++i) {
+    //   tau_left_plot->addPoint(tau_left_names[i], sim.time(), tau(i));
+    // }
+    // tau_left_plot->render();
 
-    cp_planner_plot->addPoint("ZMP_Y", sim.time(), cp_planner.py_d_);
-    cp_planner_plot->addPoint("CP_Y", sim.time(), cp_planner.cxi_y_);
-    cp_planner_plot->addPoint("CoM_Y_ref", sim.time(), cp_planner.yc_);
-    cp_planner_plot->addPoint("CoM_Y_fb", sim.time(), robot.com(data)[1]);
-    cp_planner_plot->render();
+    // world frame, so the reference and the measured CoM are comparable
+    // com_plot->addPoint("ZMP_Y", sim.time(), walk_planner.getZMPrefW()[1]);
+    // com_plot->addPoint("CP_Y", sim.time(), walk_planner.getCapturedPointrefW()[1]);
+    com_plot->addPoint("CoM_Y_ref", sim.time(), walk_planner.getCoMrefW()[1]);
+    com_plot->addPoint("CoM_Y_fb", sim.time(), robot.com(data)[1]);
+    com_plot->render();
+
+    phase_plot->addPoint("Phi-CoM", sim.time(), walk_planner.getPhase()[0]);
+    phase_plot->addPoint("Phi-Lfeet", sim.time(), walk_planner.getPhase()[1]);
+    phase_plot->addPoint("Phi-Rfeet", sim.time(), walk_planner.getPhase()[2]);
+    phase_plot->render();
 
     // Swing-foot plan: planned foot height vs. the measured foot heights, and
     // in the viewer a green sphere at the planned swing-foot position with
     // blue spheres at its liftoff and landing points
-    if (startWalking) {
-      foot_plot->addPoint("Swing_Z_ref", sim.time(), foot_placement.getSwingDesPos().z());
-      foot_plot->addPoint("LFoot_Z", sim.time(), robot.framePosition(data, lf_id).translation().z());
-      foot_plot->addPoint("RFoot_Z", sim.time(), robot.framePosition(data, rf_id).translation().z());
-      foot_plot->addPoint("Swing_Leg(L=+0.1)", sim.time(),
-                          !foot_placement.isSwinging() ? 0.0 : foot_placement.isLeftSwing() ? 0.1 : -0.1);
-      foot_plot->render();
+    // if (startWalking) {
+    //   foot_plot->addPoint("Swing_Z_ref", sim.time(), foot_placement.getSwingDesPos().z());
+    //   foot_plot->addPoint("LFoot_Z", sim.time(), robot.framePosition(data, lf_id).translation().z());
+    //   foot_plot->addPoint("RFoot_Z", sim.time(), robot.framePosition(data, rf_id).translation().z());
+    //   foot_plot->addPoint("Swing_Leg(L=+0.1)", sim.time(),
+    //                       !foot_placement.isSwinging() ? 0.0 : foot_placement.isLeftSwing() ? 0.1 : -0.1);
+    //   foot_plot->render();
 
-      if (foot_placement.isSwinging()) {
-        const float green[4] = {0.2f, 0.9f, 0.3f, 1.0f};
-        const float blue[4] = {0.2f, 0.5f, 1.0f, 0.8f};
-        sim.addSphere(foot_placement.getSwingDesPos(), 0.02, green);
-        sim.addSphere(foot_placement.posStart_W, 0.012, blue);
-        sim.addSphere(foot_placement.posDes_W, 0.012, blue);
-      }
-    }
+    //   if (foot_placement.isSwinging()) {
+    //     const float green[4] = {0.2f, 0.9f, 0.3f, 1.0f};
+    //     const float blue[4] = {0.2f, 0.5f, 1.0f, 0.8f};
+    //     sim.addSphere(foot_placement.getSwingDesPos(), 0.02, green);
+    //     sim.addSphere(foot_placement.posStart_W, 0.012, blue);
+    //     sim.addSphere(foot_placement.posDes_W, 0.012, blue);
+    //   }
+    // }
 
     // Yellow: measured CoM. Red: desired ZMP of the CP planner on the floor,
     // with a line from the CoM (the ground reaction force direction in the
@@ -433,7 +451,7 @@ int main(int argc, char **argv) {
     const Vector3d com_meas = sim.getCoM();
     sim.addSphere(com_meas, 0.025, yellow);
     if (startWalking) {
-      const Vector3d zmp_des(cp_planner.px_d_, cp_planner.py_d_, 0.0);
+      const Vector3d zmp_des = walk_planner.getZMPrefW();
       sim.addLine(com_meas, zmp_des, red, 2.0);
       sim.addSphere(zmp_des, 0.015, red);
     } else {
@@ -453,10 +471,11 @@ int main(int argc, char **argv) {
             << " lines)" << std::endl;
 
   // plot windows must be destroyed before GLFW shuts down
-  tau_right_plot.reset();
-  tau_left_plot.reset();
-  cp_planner_plot.reset();
+  // tau_right_plot.reset();
+  // tau_left_plot.reset();
+  com_plot.reset();
   foot_plot.reset();
+  phase_plot.reset();
   sim.Close();
   return 0;
 }
