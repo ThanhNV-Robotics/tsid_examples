@@ -8,6 +8,38 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 
 #include "joystick_interpreter.h"
 
+void RampTrajectory::setPara(double yDesIn, double timeToReach) {
+    yDes=yDesIn;
+    if (timeToReach<0.001)
+        timeToReach=0.001;
+    k=(yDesIn-yOld)/timeToReach;
+}
+
+void RampTrajectory::setParaDirt(double yDesIn, double delta_y) {
+    yDes=yDesIn;
+    k=delta_y/dt;
+}
+
+double RampTrajectory::step() {
+    y=yOld+k*dt;
+    if(fabs(yDes-y)<fabs(1.5*k*dt))
+        y=yDes;
+    yOld=y;
+    return y;
+}
+
+bool RampTrajectory::isReachDes() {
+    if (fabs(yDes-y)<fabs(k*dt))
+        return true;
+    else
+        return false;
+}
+
+void RampTrajectory::resetOut(double yOut) {
+    y=yOut;
+    yOld=yOut;
+}
+
 void JoyStickInterpreter::setVxDesLPara(double vxDesLIn, double timeToReach) {
     vxLGen.setPara(vxDesLIn, timeToReach);
 }

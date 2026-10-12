@@ -308,7 +308,7 @@ void WalkPlanner::enterStance(LegState stance, const tsid::robots::RobotWrapper 
     const double st_yaw = std::atan2(R_st(1, 0), R_st(0, 0)); // heading of the stance foot
 
     // Reset the CoM and Capture point to the stance ankle frame, frozen for the step
-    reanchor(oMst.translation().head<2>(), 0*st_yaw);
+    reanchor(oMst.translation().head<2>(), st_yaw);
     this->stance_leg_ = stance;
     this->cxi_x0_ = this->cxi_x_; // start of the boundary-value phase
     this->cxi_y0_ = this->cxi_y_;

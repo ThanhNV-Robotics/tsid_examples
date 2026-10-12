@@ -8,8 +8,26 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 
 #pragma once
 
-#include "ramp_trajectory.h"
+#include <cmath>
+
 #include "data_type.h"
+
+// Linear ramp from the current output to a target value, stepped once per dt
+class RampTrajectory {
+public:
+    double dt;
+    double y;
+    double yDes;
+    RampTrajectory(double dtIn):dt{dtIn},yOld{0},k{0},yDes{0}{};
+    void setPara(double yDesIn, double timeToReach); // timeToReach is the time to reach the yDes from the current yOld
+    void setParaDirt(double yDesIn, double delta_y);
+    double step();
+    bool isReachDes();
+    void resetOut(double yOut);
+private:
+    double yOld;
+    double k;
+};
 
 class JoyStickInterpreter {
 public:

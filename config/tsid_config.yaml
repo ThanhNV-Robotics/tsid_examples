@@ -36,9 +36,12 @@ swing_foot_task: # tracks the swing foot (contact frame) while it is in the air
   priority: 1 # priority level (1 = soft motion task)
   contact_transition_time: 0.15 # [s] the lifting foot's contact force is ramped to zero over this time before removal
 
-actuation_bounds_task:
+actuation_bounds_task: # joint torque limit 
+#−τ_max ≤ τ ≤ τ_max      with   τ = S (M·v̇ + h − J_cᵀ f)
   weight: 1.0
   priority: 0 # priority 0 = hard constraint in TSID
+  tau_max: [48, 48, 16, 48, 18, 18,   # left:  hip pitch, hip roll, hip yaw, knee, ankle roll, ankle pitch
+            48, 48, 16, 48, 18, 18]   # right
 
 posture_task: # joint space control task
   weight: 0.001 # task weight in the QP cost function
@@ -105,7 +108,7 @@ walk_planner:
     max_step_length: 0.15 # |step length| limit [m]; step length = vx * t_swing
     left_foot_frame: "left_ankle_pitch_link" # swing-foot frames, same as the contact frames
     right_foot_frame: "right_ankle_pitch_link"
-    vx: 0.15 # forward speed [m/s]; 0 = step in place
+    vx: 0.0 # forward speed [m/s]; 0 = step in place
     ramp_time: 1.0 # time to ramp the speed command from 0 to vx [s]
     dt: 0.001 # sampling time
     touchdown_phase_min: 0.7

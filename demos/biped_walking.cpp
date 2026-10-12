@@ -24,6 +24,7 @@
 #include "foot_placement.h"
 #include <yaml-cpp/yaml.h>
 #include "walk_planner.h"
+#include "contact_fusion.h" // for contact estimation
 
 using namespace tsid;
 using namespace tsid::robots;
@@ -108,23 +109,21 @@ int main(int argc, char **argv) {
   Cheat_StateEstimator state_estimator(sim.model(), sim.data());
 
 
-
   utils::robotStateToPinocchio(
       state_estimator.estimate(sim.getRobotSensorValues()), q, v);
   tsid.computeProblemData(0.0, q, v);
-  const pinocchio::Data &data = tsid.data();
 
   // Configure tasks and update contact placements
   task_parser.setTaskconfig(tsid, robot);
-  task_parser.updateContactReferences(data);
+  task_parser.updateContactReferences(tsid.data());
 
   auto com_task = task_parser.getComTask();
   auto posture_task = task_parser.getPostureTask();
 
   // Set reference for CoM task horizontally centred over all contact feet
-  Vector3d com_ref = task_parser.computeSupportCenter(data, robot);
+  Vector3d com_ref = task_parser.computeSupportCenter(tsid.data(), robot);
   com_ref.x() += 0.04; // sole centre is 4 cm ahead of the ankle
-  com_ref.z() = robot.com(data).z(); // hold the current CoM height (the support centre z is the ankle height)
+  com_ref.z() = robot.com(tsid.data()).z(); // hold the current CoM height (the support centre z is the ankle height)
   TrajectorySample com_sample(3);
   com_sample.setValue(com_ref);
   com_sample.setDerivative(Vector3d::Zero());
@@ -145,7 +144,7 @@ int main(int argc, char **argv) {
   JoyStickInterpreter joystick(dt);
   // Unified walk planner: CoM / capture point / ZMP in the stance-ankle frame,
   // step timing and touchdown detection, next foothold
-  WalkPlanner walk_planner (TSID_CONFIG_PATH, robot.com(data)[2]);
+  WalkPlanner walk_planner (TSID_CONFIG_PATH, robot.com(tsid.data())[2]);
 
   // true: the swing foot is lifted (contact removed, swing task tracks the
   // planned trajectory). false: footsteps are only planned and plotted, both
@@ -165,6 +164,12 @@ int main(int argc, char **argv) {
   foot_placement.openLoopFootsteps = !enable_swing; // chain planned steps while the feet stay planted
   const pinocchio::FrameIndex lf_id = robot.model().getFrameId(foot_placement.leftFootFrame);
   const pinocchio::FrameIndex rf_id = robot.model().getFrameId(foot_placement.rightFootFrame);
+
+  // Contact estimation without a foot sensor: momentum-based disturbance
+  // observer -> foot contact wrenches (foot order: left, right). The touch
+  // sensors are only read to compare against the estimate.
+  ContactFusion contact_estimator(robot.model(),
+                                  {foot_placement.leftFootFrame, foot_placement.rightFootFrame}, dt, 15.0);
 
   // ------------------------------------------------------------------------
   // 5. Simulation Setup & Initial Joint State
@@ -203,6 +208,9 @@ int main(int argc, char **argv) {
   datalog.addItem("rfoot_meas", std::vector<std::string>{"x", "y", "z"});
   datalog.addItem("lfoot_rpy", std::vector<std::string>{"roll", "pitch", "yaw"});
   datalog.addItem("rfoot_rpy", std::vector<std::string>{"roll", "pitch", "yaw"});
+  // Contact force: observer estimate (vertical force, world z) vs. touch sensor
+  datalog.addItem("f_est_z", std::vector<std::string>{"L", "R"});
+  datalog.addItem("f_touch", std::vector<std::string>{"L", "R"});
   datalog.finishItemAdding();
 
   // Real-time plots
@@ -236,6 +244,11 @@ int main(int argc, char **argv) {
   com_plot->setYLabel("CoM X/Y");
   com_plot->setLineWidth(2.0);
 
+  auto force_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
+                                                   "Foot contact force", 10.0);
+  force_plot->setYLabel("Fz (N)");
+  force_plot->setLineWidth(2.0);
+
   auto foot_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
                                                   "Swing Foot Planner", 10.0);
   foot_plot->setYLabel("Foot Z (m)");
@@ -267,6 +280,7 @@ int main(int argc, char **argv) {
       // pass sensor values to state estimator
       const RobotState state = state_estimator.estimate(robot_sensors);
       utils::robotStateToPinocchio(state, q, v);
+      contact_estimator.computeDisturbanceTorque(q, v, robot_sensors.actuator_state.torquej);
 
       // ------------------------------------------------------------------------
       // Initial standing task
@@ -286,6 +300,7 @@ int main(int argc, char **argv) {
         startWalking = true;
         joystick.setMotionState(MotionState::WALK);
         joystick.setVxDesLPara(vx_cmd, vx_ramp_time);
+        // tsid.removeTask(posture_task->name(),2.5);
         // The walk planner first shifts the CoM onto the left foot with both
         // feet down, then starts stepping with the left leg as stance (the
         // right foot swings first)
@@ -293,13 +308,13 @@ int main(int argc, char **argv) {
         // Nominal stance width = the actual distance between the planted feet,
         // used by both planners so the lateral targets lie on the feet
         foot_placement.stanceWidth =
-            (robot.framePosition(data, lf_id).translation() - robot.framePosition(data, rf_id).translation())
+            (robot.framePosition(tsid.data(), lf_id).translation() - robot.framePosition(tsid.data(), rf_id).translation())
                 .head<2>().norm();
         walk_planner.wd_hip = foot_placement.stanceWidth;
         // Nominal foot orientations: flat (zero roll/pitch) with the standing yaw
         for (auto [fid, R_nom] : {std::pair<pinocchio::FrameIndex, Matrix3d *>{lf_id, &R_nominal_lf},
                                   std::pair<pinocchio::FrameIndex, Matrix3d *>{rf_id, &R_nominal_rf}}) {
-          const Matrix3d Rf = robot.framePosition(data, fid).rotation();
+          const Matrix3d Rf = robot.framePosition(tsid.data(), fid).rotation();
           *R_nom = Eigen::AngleAxisd(std::atan2(Rf(1, 0), Rf(0, 0)), Vector3d::UnitZ()).toRotationMatrix();
         }
         std::printf("[FootPlacement] stance width %.3f m\n", foot_placement.stanceWidth);
@@ -310,7 +325,7 @@ int main(int argc, char **argv) {
       // ------------------------------------------------------------------------
       if (startWalking)
       {
-        walk_planner.planWalking(joystick, state_estimator, robot, data, Tswing);
+        walk_planner.planWalking(joystick, state_estimator, robot, tsid.data(), Tswing);
         // CoM reference (world frame) with the planned velocity and acceleration
         // as feedforward (zero derivatives would make the Kd term brake the motion)
         com_sample.setValue(walk_planner.getCoMrefW());
@@ -328,8 +343,9 @@ int main(int argc, char **argv) {
           // the step, or the step timing out if it never lifted), so the
           // landing foot gets its contact back and the other foot lifts off
           if (walk_planner.stanceChanged()) {
-            if (!swing_frame.empty() && task_parser.isSwinging(swing_frame)) {
-              task_parser.endSwing(tsid, swing_frame, tsid.data());
+            if (!swing_frame.empty() && task_parser.isSwinging(swing_frame)) 
+            {
+              task_parser.endSwing(tsid, swing_frame, tsid.data()); // add rigid contact for the 
               std::printf("[Swing] t=%.3f touchdown %s\n", t, swing_frame.c_str());
             }
             swing_frame = foot_placement.getSwingFrameName();
@@ -345,13 +361,19 @@ int main(int argc, char **argv) {
       }
 
       joystick.step();
-      // Compute smooth 5th-order polynomial trajectory to qa_init over T_stand
-      utils::quinticTrajectory(q_start, qa_init, t, T_stand, q_ref, v_ref,
-                               dv_ref);
-      sample.setValue(q_ref);
-      sample.setDerivative(v_ref);
-      sample.setSecondDerivative(dv_ref);
-      posture_task->setReference(sample);
+
+      if (t<= T_stand)
+      {
+        // Compute smooth 5th-order polynomial trajectory to qa_init over
+        // T_stand
+        utils::quinticTrajectory(q_start, qa_init, t, T_stand, q_ref, v_ref,
+                                 dv_ref);
+        sample.setValue(q_ref);
+        sample.setDerivative(v_ref);
+        sample.setSecondDerivative(dv_ref);
+        posture_task->setReference(sample);
+      }
+      
 
       // 6.3 Solve HQP Problem
       const auto &hqpData = tsid.computeProblemData(t, q, v);
@@ -396,6 +418,9 @@ int main(int argc, char **argv) {
         datalog.recItemData(item, Vector3d(std::atan2(Rf(2, 1), Rf(2, 2)), std::asin(-Rf(2, 0)),
                                            std::atan2(Rf(1, 0), Rf(0, 0))));
       }
+      datalog.recItemData("f_est_z", Vector2d(contact_estimator.getFootWrench(0)(2),
+                                              contact_estimator.getFootWrench(1)(2)));
+      datalog.recItemData("f_touch", Vector2d(robot_sensors.left_touch_sensor, robot_sensors.right_touch_sensor));
       datalog.finishLine();
       // 6.6 Apply interactive user perturbations and step physics
       sim.stepPhysics();
@@ -415,7 +440,7 @@ int main(int argc, char **argv) {
     // com_plot->addPoint("ZMP_Y", sim.time(), walk_planner.getZMPrefW()[1]);
     // com_plot->addPoint("CP_Y", sim.time(), walk_planner.getCapturedPointrefW()[1]);
     com_plot->addPoint("CoM_Y_ref", sim.time(), walk_planner.getCoMrefW()[1]);
-    com_plot->addPoint("CoM_Y_fb", sim.time(), robot.com(data)[1]);
+    com_plot->addPoint("CoM_Y_fb", sim.time(), robot.com(tsid.data())[1]);
     com_plot->render();
 
     phase_plot->addPoint("Phi-CoM", sim.time(), walk_planner.getPhase()[0]);
@@ -423,13 +448,20 @@ int main(int argc, char **argv) {
     phase_plot->addPoint("Phi-Rfeet", sim.time(), walk_planner.getPhase()[2]);
     phase_plot->render();
 
+    // Estimated vs. measured (touch sensor) normal force of each foot
+    force_plot->addPoint("L_est", sim.time(), contact_estimator.getFootWrench(0)(2));
+    force_plot->addPoint("L_touch", sim.time(), robot_sensors.left_touch_sensor);
+    force_plot->addPoint("R_est", sim.time(), contact_estimator.getFootWrench(1)(2));
+    force_plot->addPoint("R_touch", sim.time(), robot_sensors.right_touch_sensor);
+    force_plot->render();
+
     // Swing-foot plan: planned foot height vs. the measured foot heights, and
     // in the viewer a green sphere at the planned swing-foot position with
     // blue spheres at its liftoff and landing points
     // if (startWalking) {
     //   foot_plot->addPoint("Swing_Z_ref", sim.time(), foot_placement.getSwingDesPos().z());
-    //   foot_plot->addPoint("LFoot_Z", sim.time(), robot.framePosition(data, lf_id).translation().z());
-    //   foot_plot->addPoint("RFoot_Z", sim.time(), robot.framePosition(data, rf_id).translation().z());
+    //   foot_plot->addPoint("LFoot_Z", sim.time(), robot.framePosition(tsid.data(), lf_id).translation().z());
+    //   foot_plot->addPoint("RFoot_Z", sim.time(), robot.framePosition(tsid.data(), rf_id).translation().z());
     //   foot_plot->addPoint("Swing_Leg(L=+0.1)", sim.time(),
     //                       !foot_placement.isSwinging() ? 0.0 : foot_placement.isLeftSwing() ? 0.1 : -0.1);
     //   foot_plot->render();
@@ -475,6 +507,7 @@ int main(int argc, char **argv) {
   // tau_left_plot.reset();
   com_plot.reset();
   foot_plot.reset();
+  force_plot.reset();
   phase_plot.reset();
   sim.Close();
   return 0;
