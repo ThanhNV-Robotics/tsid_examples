@@ -34,8 +34,12 @@ class WalkPlanner
         double CP_dynamics (double p, double cxi);
         void computeCoM (double cxi_x, double cxi_y);
 
+        // contact_flags: [left, right] foot contact state, e.g. ContactFusion's
+        // estimate (getContactState) or the simulator's ground truth; used for
+        // the start of stepping and the swing foot's touchdown
         void planWalking (JoyStickInterpreter &joystick, Cheat_StateEstimator &state_estimator,
-            tsid::robots::RobotWrapper &robot_wrapper, const pinocchio::Data &data, double Tswing);
+            tsid::robots::RobotWrapper &robot_wrapper, const pinocchio::Data &data, double Tswing,
+            const std::vector<bool> &contact_flags);
 
         void computeCP (double zmp_x, double zmp_y);
 

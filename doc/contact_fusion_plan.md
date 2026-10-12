@@ -415,7 +415,7 @@ behaviour exactly.
 | `{include,src}/estimation/cheat_state_estimator.{h,cpp}` | remove touch-sensor contact flags |
 | `include/common/data_type.h` | remove `left/right_touch_sensor` from `RobotSensor`; `RobotState::contact_flags` filled from `ContactFusion` |
 | `{include,src}/sim/Robot_Simulator.{h,cpp}` | remove touch-sensor reads; add `getGroundTruthContacts()` (evaluation only) |
-| `models/mjcf/*biped*.xml` | remove `<touch>` sensors and their `*-tc` sites |
+| `models/biped/mjcf/*biped*.xml` | remove `<touch>` sensors and their `*-tc` sites |
 | `{include,src}/planning/walk_planner.{h,cpp}` | prior getters per foot; event-based touchdown (step 4) |
 | `{include,src}/planning/foot_placement.{h,cpp}` | swing freeze / extend-down hooks (step 4) |
 | `demos/biped_walking.cpp` | wiring, logging, metrics |

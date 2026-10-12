@@ -151,7 +151,8 @@ void WalkPlanner::computeCP (double zmp_x, double zmp_y)
 }
 
 void WalkPlanner::planWalking (JoyStickInterpreter &joystick, Cheat_StateEstimator &state_estimator,
-                tsid::robots::RobotWrapper &robot_wrapper, const pinocchio::Data &data, double Tswing)
+                tsid::robots::RobotWrapper &robot_wrapper, const pinocchio::Data &data, double Tswing,
+                const std::vector<bool> &contact_flags)
 {
     // Planning CoM and swing feet using local coordinate to avoid driting
     this->stance_changed_ = false; // set again by enterStance() if a new step starts this tick
@@ -186,7 +187,6 @@ void WalkPlanner::planWalking (JoyStickInterpreter &joystick, Cheat_StateEstimat
 
     double vx = joystick.vx_W; // forward walking velocity
     t_swing = Tswing;
-    std::vector<bool> contact_flags = state_estimator.getState().contact_flags;
     
     const double dPhi = dt_ / Tswing; // phase goes 0 -> 1 over one Tswing
     this->phi_CoM += dPhi; // ramping CoM phase

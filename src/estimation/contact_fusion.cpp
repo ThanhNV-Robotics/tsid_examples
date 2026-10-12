@@ -11,7 +11,8 @@
 // Constructor
 ContactFusion::ContactFusion(const pinocchio::Model &model, const std::vector<std::string> &foot_frames,
                              double dt, double lamda)
-    : model_(model), data_(model) // reference and Data have no default constructor
+    : contact_filter(makeContactFilter(static_cast<int>(foot_frames.size()))), // no default constructor
+      model_(model), data_(model) // reference and Data have no default constructor
 {
     // Input: dt -> sampling time [s]
     //        lamda -> cutoff frequency [Hz]
@@ -45,7 +46,36 @@ ContactFusion::ContactFusion(const pinocchio::Model &model, const std::vector<st
         this->foot_ids_.push_back(fid);
         this->leg_dofs_.push_back(dofs);
         this->foot_wrench_.push_back(Vector6d::Zero());
+        this->sole_corners_.push_back(Eigen::Matrix3Xd::Zero(3, 1)); // foot frame origin until setSoleCorners()
+        this->foot_height_.push_back(0.0);
     }
+
+    // The robot starts standing on all feet: initial contact probability 1
+    const int n_feet = static_cast<int>(foot_frames.size());
+    this->contact_filter.init(VectorXd::Ones(n_feet));
+    this->u_ = VectorXd::Ones(n_feet);
+    this->z_ = VectorXd::Ones(2 * n_feet);
+    this->p_fused_ = VectorXd::Ones(n_feet);
+    this->contact_state_.assign(n_feet, true);
+}
+
+// Contact probability Kalman filter (paper eq. 12-25). With A = 0 the
+// prediction is the phase-based prior alone (x = u, P = Sigma_w), so the
+// update is a per-foot inverse-variance weighted average of the prior and the
+// two measurements.
+KalmanFilter ContactFusion::makeContactFilter (int n_feet)
+{
+    const MatrixXd I = MatrixXd::Identity(n_feet, n_feet);
+    const MatrixXd A = MatrixXd::Zero(n_feet, n_feet); // eq. 16: no state carried over
+    const MatrixXd B = I;                              // eq. 16: input = phase-based prior
+    MatrixXd C(2 * n_feet, n_feet);                    // eq. 25: H = [I; I]
+    C << I, I;
+    const MatrixXd P0 = I;                             // initial estimate covariance
+    MatrixXd R = MatrixXd::Zero(2 * n_feet, 2 * n_feet); // eq. 24: blkdiag(Sigma_v1, Sigma_v2)
+    R.topLeftCorner(n_feet, n_feet) = kRHeight_ * I;
+    R.bottomRightCorner(n_feet, n_feet) = kRForce_ * I;
+    const MatrixXd Q = kQPhase_ * I;                   // eq. 15: Sigma_w
+    return KalmanFilter(A, B, C, P0, R, Q);
 }
 
 // Disturbance torque estimation
@@ -74,6 +104,63 @@ const VectorXd &ContactFusion::computeDisturbanceTorque (const VectorXd &q, cons
     return tau_d_;
 }
 
+double ContactFusion::calculate_phase_contact_probability(double phi, bool scheduled_contact)
+{
+    const int s_phi = int(scheduled_contact); // 1/True = contact, 0/False = swing
+    const int s_phi_bar = int(1-s_phi);
+    // expected phase value at which the contact state switches
+    const double muy_c0 = 0; // expected to be in swing as phi = 0
+    const double muy_c1 = 1; // expected to be in contact as phi = 1
+
+    double p_stand = (std::erf((phi - muy_c0)/(this->sigma_phase_c_*std::sqrt(2)))
+     + std::erf((muy_c1 - phi)/(this->sigma_phase_c_*std::sqrt(2))));
+
+    double p_swing = 2.0 + std::erf((muy_c0 - phi)/(this->sigma_phase_c_*std::sqrt(2)))
+    + std::erf((phi-muy_c1)/(this->sigma_phase_c_*std::sqrt(2)));
+    return 0.5*(s_phi * p_stand + s_phi_bar * p_swing);
+}
+
+double ContactFusion::calculate_force_contact_probability(double fz)
+{
+    double erf = std::erf((fz - this->muy_fc_)/(this->sigma_fc_*std::sqrt(2)));
+    return 0.5*(1+erf);
+}
+
+// Eq. 20: P(c | pz) = 1/2 [1 + erf((muy_zg - pz) / (sigma_zg sqrt(2)))],
+// high when the sole is at or below the expected ground height
+double ContactFusion::calculate_height_contact_probability(double pz)
+{
+    double erf = std::erf((this->muy_zg_ - pz)/(this->sigma_zg_*std::sqrt(2)));
+    return 0.5*(1+erf);
+}
+
+// Contact probability fusion (paper Sec. IV, eq. 12-19, 26)
+const VectorXd &ContactFusion::fuseContactProbability (const std::vector<bool> &s_phi,
+                                                      const std::vector<double> &phi)
+{
+    const int n = static_cast<int>(foot_ids_.size());
+    for (int i = 0; i < n; ++i)
+    {
+        u_(i) = calculate_phase_contact_probability(phi[i], s_phi[i]);         // eq. 14
+        z_(i) = calculate_height_contact_probability(foot_height_[i]);         // eq. 21
+        z_(n + i) = calculate_force_contact_probability(foot_wrench_[i](2));   // eq. 23
+    }
+
+    contact_filter.predict(u_); // eq. 12-13: x = u, P = Sigma_w (A = 0)
+    contact_filter.update(z_);  // eq. 17-19
+    // The weighted average of probabilities stays in [0, 1]; clamp rounding errors
+    p_fused_ = contact_filter.get_state().cwiseMax(0.0).cwiseMin(1.0);
+
+    // Contact decision with hysteresis (eq. 26), so P hovering around the
+    // threshold does not toggle the contact state every tick
+    for (int i = 0; i < n; ++i)
+    {
+        if (!contact_state_[i] && p_fused_(i) > p_on_) contact_state_[i] = true;
+        else if (contact_state_[i] && p_fused_(i) < p_off_) contact_state_[i] = false;
+    }
+    return p_fused_;
+}
+
 // Per-foot contact wrench (paper Sec. III-C): f_i = (S_i J_i^T)^-1 S_i tau_d,
 // assuming every disturbance on a leg's joints comes from its foot
 void ContactFusion::computeFootWrenches (const VectorXd &q)
@@ -83,6 +170,11 @@ void ContactFusion::computeFootWrenches (const VectorXd &q)
 
     for (size_t i = 0; i < foot_ids_.size(); ++i)
     {
+        // Sole height: lowest corner in the world frame, so a heel or toe strike
+        // on a tilted foot counts as soon as one corner reaches the ground
+        const pinocchio::SE3 &oMf = data_.oMf[foot_ids_[i]];
+        foot_height_[i] = ((oMf.rotation() * sole_corners_[i]).colwise() + oMf.translation()).row(2).minCoeff();
+
         J_.setZero();
         // LOCAL_WORLD_ALIGNED: wrench at the foot frame origin, world axes (f_z = vertical)
         pinocchio::getFrameJacobian(model_, data_, foot_ids_[i], pinocchio::LOCAL_WORLD_ALIGNED, J_);

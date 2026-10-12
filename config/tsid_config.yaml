@@ -108,7 +108,7 @@ walk_planner:
     max_step_length: 0.15 # |step length| limit [m]; step length = vx * t_swing
     left_foot_frame: "left_ankle_pitch_link" # swing-foot frames, same as the contact frames
     right_foot_frame: "right_ankle_pitch_link"
-    vx: 0.0 # forward speed [m/s]; 0 = step in place
+    vx: 0.05 # forward speed [m/s]; 0 = step in place
     ramp_time: 1.0 # time to ramp the speed command from 0 to vx [s]
     dt: 0.001 # sampling time
     touchdown_phase_min: 0.7

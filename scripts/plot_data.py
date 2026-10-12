@@ -9,6 +9,9 @@ Generates 4 figures: left/right leg positions and left/right leg torques.
 If the log has f_est_z_{L,R} and f_gt_z_{L,R} (or f_touch_{L,R} in older logs),
 a figure compares the contact force estimated by the momentum observer with the
 simulator's ground-truth contact force.
+If the log has the contact fusion columns (p_phase, p_height, p_force, p_fused,
+s_hat, s_gt, sole_z), a figure shows the contact estimation of each foot and the
+contact state accuracy and touchdown / liftoff detection delays are printed.
 """
 
 import argparse
@@ -48,6 +51,12 @@ def parse_args():
         default=20.0,
         help="Reference force above which a foot counts as in contact, for the shading "
         "and the contact/swing RMSE [N] (default: 20, same as Cheat_StateEstimator)",
+    )
+    parser.add_argument(
+        "--t-start",
+        type=float,
+        default=3.0,
+        help="Start of walking [s] (T_stand); accuracy and delays are computed from here (default: 3)",
     )
     parser.add_argument(
         "--no-show",
@@ -185,6 +194,91 @@ def plot_contact_forces(df, time, contact_level, ref):
     return fig
 
 
+def match_edges(t, ref, est, rising, window=0.3):
+    """Delay of each reference edge: time from a rising (or falling) edge of the
+    reference contact state to the nearest same-direction edge of the estimate
+    within +-window [s]. Positive = estimate late. Returns (delays, n_missed)."""
+    d = 1 if rising else -1
+    t_ref = t[1:][np.diff(ref.astype(int)) == d]
+    t_est = t[1:][np.diff(est.astype(int)) == d]
+    delays, missed = [], 0
+    for tr in t_ref:
+        if t_est.size and np.min(np.abs(t_est - tr)) <= window:
+            delays.append(t_est[np.argmin(np.abs(t_est - tr))] - tr)
+        else:
+            missed += 1
+    return np.asarray(delays), missed
+
+
+def contact_estimation_metrics(df, time, t_start):
+    """Print the accuracy of s_hat against s_gt and the touchdown / liftoff delays."""
+    walk = time >= t_start
+    print(f"\nContact estimation (from t = {t_start:.1f} s)")
+    print(f"  {'Foot':<6} | {'Accuracy':>8} | {'Touchdown delay [ms]':>24} | {'Liftoff delay [ms]':>24} | {'Est. switches':>13}")
+    for side, name in (("L", "Left"), ("R", "Right")):
+        s_hat = df[f"s_hat_{side}"].to_numpy()[walk] > 0.5
+        s_gt = df[f"s_gt_{side}"].to_numpy()[walk] > 0.5
+        t = time[walk]
+        acc = 100.0 * np.mean(s_hat == s_gt)
+        cells = []
+        for rising in (True, False):
+            dl, missed = match_edges(t, s_gt, s_hat, rising)
+            cell = (f"mean {1e3 * dl.mean():5.1f}, max {1e3 * np.max(np.abs(dl)):5.1f}" if dl.size else "-")
+            cells.append(cell + (f" ({missed} missed)" if missed else ""))
+        n_sw = int(np.sum(np.diff(s_hat.astype(int)) != 0))
+        n_sw_gt = int(np.sum(np.diff(s_gt.astype(int)) != 0))
+        print(f"  {name:<6} | {acc:>7.2f}% | {cells[0]:>24} | {cells[1]:>24} | {n_sw:>5} (gt {n_sw_gt})")
+
+
+def plot_contact_estimation(df, time, t_start):
+    """Per foot: model probabilities and fused probability, estimated vs true
+    contact state, and sole height."""
+    fig, axes = plt.subplots(3, 2, figsize=(15, 9), sharex=True,
+                             gridspec_kw={"height_ratios": [1.4, 0.7, 1]})
+    fig.suptitle("Contact estimation (Kalman fusion) vs ground truth", fontsize=14, fontweight="bold")
+    for col, (side, name) in enumerate((("L", "Left"), ("R", "Right"))):
+        s_gt = df[f"s_gt_{side}"].to_numpy() > 0.5
+        shade = contact_spans(time, s_gt)
+
+        # 1. Probabilities: the three models (thin) and the fused estimate (thick)
+        ax = axes[0, col]
+        for k, (t0, t1) in enumerate(shade):
+            ax.axvspan(t0, t1, color="tab:gray", alpha=0.12, label="contact (ground truth)" if k == 0 else None)
+        ax.plot(time, df[f"p_phase_{side}"], color="tab:green", lw=0.9, alpha=0.8, label="phase $P(c|s_\\phi,\\phi)$")
+        ax.plot(time, df[f"p_height_{side}"], color="tab:purple", lw=0.9, alpha=0.8, label="height $P(c|p_z)$")
+        ax.plot(time, df[f"p_force_{side}"], color="tab:orange", lw=0.9, alpha=0.8, label="force $P(c|f_z)$")
+        ax.plot(time, df[f"p_fused_{side}"], color="tab:blue", lw=1.8, label="fused $P(c)$")
+        ax.set_title(f"{name} foot", fontsize=11, fontweight="semibold")
+        ax.set_ylabel("probability", fontsize=10)
+        ax.set_ylim(-0.05, 1.05)
+        ax.grid(True, linestyle="--", alpha=0.6)
+        ax.legend(loc="lower left", framealpha=0.85, fontsize=8, ncol=2)
+
+        # 2. Contact state: estimate (s_hat) vs ground truth
+        ax = axes[1, col]
+        ax.step(time, s_gt.astype(float), "r--", where="post", lw=1.6, label="ground truth")
+        ax.step(time, df[f"s_hat_{side}"].to_numpy(), "b-", where="post", lw=1.1, alpha=0.85, label="estimate $\\hat s$")
+        ax.set_yticks([0, 1], ["swing", "contact"])
+        ax.set_ylim(-0.2, 1.2)
+        ax.grid(True, linestyle="--", alpha=0.6)
+        ax.legend(loc="center left", framealpha=0.85, fontsize=8)
+
+        # 3. Sole height, the input of the height model
+        ax = axes[2, col]
+        for t0, t1 in shade:
+            ax.axvspan(t0, t1, color="tab:gray", alpha=0.12)
+        ax.plot(time, 1e3 * df[f"sole_z_{side}"].to_numpy(), color="tab:purple", lw=1.2)
+        ax.axhline(0.0, color="black", ls=":", lw=0.8)
+        ax.set_ylabel("sole height [mm]", fontsize=10)
+        ax.set_xlabel("Time [s]", fontsize=10)
+        ax.grid(True, linestyle="--", alpha=0.6)
+
+    for ax in axes.flat:
+        ax.axvline(t_start, color="0.4", lw=0.8)
+    fig.tight_layout()
+    return fig
+
+
 def main():
     args = parse_args()
 
@@ -195,6 +289,8 @@ def main():
 
     print(f"[Plotter] Loading log data from: {csv_path}")
     df = pd.read_csv(csv_path)
+    # A run stopped mid-write can leave an incomplete last line
+    df = df[df.iloc[:, -1].notna()].reset_index(drop=True)
     if "time" not in df.columns:
         print("[Error] CSV does not contain a 'time' column.")
         sys.exit(1)
@@ -229,6 +325,14 @@ def main():
         figures["contact_force"] = plot_contact_forces(df, time, args.contact_level, ref)
     else:
         print("\n[Plotter] No contact force columns (f_est_z_*, f_gt_z_*), skipping contact force plot")
+
+    fusion_cols = [f"{c}_{s}" for c in ("p_phase", "p_height", "p_force", "p_fused", "s_hat", "s_gt", "sole_z")
+                   for s in ("L", "R")]
+    if all(c in df.columns for c in fusion_cols):
+        contact_estimation_metrics(df, time, args.t_start)
+        figures["contact_estimation"] = plot_contact_estimation(df, time, args.t_start)
+    else:
+        print("\n[Plotter] No contact fusion columns (p_fused_*, s_hat_*, ...), skipping contact estimation plot")
 
     if args.save:
         prefix = args.save if os.path.isabs(args.save) else os.path.join(REPO_ROOT, args.save)

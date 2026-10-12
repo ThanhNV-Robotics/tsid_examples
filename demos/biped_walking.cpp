@@ -37,8 +37,8 @@ using namespace Eigen;
 using tsid::contacts::Contact6d;
 
 int main(int argc, char **argv) {
-  const string XML_PATH = std::string(PROJECT_ROOT_DIR) + "/models/mjcf/scene_floatingbase_12dof_v2.xml";
-  const string URDF_PATH = std::string(PROJECT_ROOT_DIR) + "/models/urdf/v2_biped_robot_12dof.urdf";
+  const string XML_PATH = std::string(PROJECT_ROOT_DIR) + "/models/biped/mjcf/scene_floatingbase_12dof_v2.xml";
+  const string URDF_PATH = std::string(PROJECT_ROOT_DIR) + "/models/biped/urdf/v2_biped_robot_12dof.urdf";
   const string TSID_CONFIG_PATH = std::string(PROJECT_ROOT_DIR) + "/config/tsid_config.yaml";
   const double hip_width = 0.334;
   const double init_base_height = 0.78;
@@ -151,6 +151,12 @@ int main(int argc, char **argv) {
   // feet stay planted.
   const bool enable_swing = true;
 
+  // Contact state used by the walk planner (start of stepping, swing touchdown),
+  // and through its step event by the TSID contact switching.
+  // true: estimated by ContactFusion (no foot sensor).
+  // false: simulator ground truth (MuJoCo contact forces > 20 N).
+  const bool use_estimated_contact = false;
+
   // Walking speed command (YAML "walk_planner: foot_placement:" block)
   const YAML::Node wp_cfg = YAML::LoadFile(TSID_CONFIG_PATH)["walk_planner"];
   const YAML::Node walk_cfg = wp_cfg ? wp_cfg["foot_placement"] : YAML::Node();
@@ -170,6 +176,11 @@ int main(int argc, char **argv) {
   // against the simulator's contact forces (Cheat_StateEstimator::getContactForces()).
   ContactFusion contact_estimator(robot.model(),
                                   {foot_placement.leftFootFrame, foot_placement.rightFootFrame}, dt, 15.0);
+  // Sole corners for the foot height: the same contact points as the TSID contacts
+  for (const auto &info : task_parser.getContactInfos()) {
+    if (info.frame_name == foot_placement.leftFootFrame) contact_estimator.setSoleCorners(0, info.contact_points);
+    if (info.frame_name == foot_placement.rightFootFrame) contact_estimator.setSoleCorners(1, info.contact_points);
+  }
 
   // ------------------------------------------------------------------------
   // 5. Simulation Setup & Initial Joint State
@@ -211,6 +222,15 @@ int main(int argc, char **argv) {
   // Contact force (vertical, world z): observer estimate vs. ground truth (MuJoCo contacts)
   datalog.addItem("f_est_z", std::vector<std::string>{"L", "R"});
   datalog.addItem("f_gt_z", std::vector<std::string>{"L", "R"});
+  // Sole height (world z of the lowest sole corner), input of the height contact model
+  datalog.addItem("sole_z", std::vector<std::string>{"L", "R"});
+  // Contact fusion: per-model probabilities, fused probability, estimated and true contact
+  datalog.addItem("p_phase", std::vector<std::string>{"L", "R"});
+  datalog.addItem("p_height", std::vector<std::string>{"L", "R"});
+  datalog.addItem("p_force", std::vector<std::string>{"L", "R"});
+  datalog.addItem("p_fused", std::vector<std::string>{"L", "R"});
+  datalog.addItem("s_hat", std::vector<std::string>{"L", "R"});
+  datalog.addItem("s_gt", std::vector<std::string>{"L", "R"});
   datalog.finishItemAdding();
 
   // Real-time plots
@@ -220,10 +240,10 @@ int main(int argc, char **argv) {
   // tau_right_plot->setYLabel("Nm");
   // tau_right_plot->setLineWidth(2.0);
 
-  auto phase_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
-                                                       "Walking Phase", 10.0);
-  phase_plot->setYLabel("Phase");
-  phase_plot->setLineWidth(2.0);
+  auto foot_height_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
+                                                          "Foot height (contact fusion)", 10.0);
+  foot_height_plot->setYLabel("Sole z (m)");
+  foot_height_plot->setLineWidth(2.0);
 
   // // Left leg joint torques (commanded), one line per joint
   // auto tau_left_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
@@ -239,20 +259,38 @@ int main(int argc, char **argv) {
     tau_left_names.push_back(name);
   }
 
-  auto com_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
-                                                      "Walk Planner CoM", 10.0);
-  com_plot->setYLabel("CoM X/Y");
-  com_plot->setLineWidth(2.0);
+  auto phase_contact_prob_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
+                                                                 "Phase contact probability", 10.0);
+  phase_contact_prob_plot->setYLabel("P(c | s_phi, phi)");
+  phase_contact_prob_plot->setLineWidth(2.0);
 
   auto force_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
                                                    "Foot contact force", 10.0);
   force_plot->setYLabel("Fz (N)");
   force_plot->setLineWidth(2.0);
 
-  auto foot_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
-                                                  "Swing Foot Planner", 10.0);
-  foot_plot->setYLabel("Foot Z (m)");
-  foot_plot->setLineWidth(2.0);
+  auto force_contact_prob_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
+                                                                 "Force contact probability", 10.0);
+  force_contact_prob_plot->setYLabel("P(c | f_z)");
+  force_contact_prob_plot->setLineWidth(2.0);
+
+  auto height_contact_prob_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
+                                                                  "Height contact probability", 10.0);
+  height_contact_prob_plot->setYLabel("P(c | p_z)");
+  height_contact_prob_plot->setLineWidth(2.0);
+
+  auto fused_contact_prob_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
+                                                                 "Fused contact probability (Kalman)", 10.0);
+  fused_contact_prob_plot->setYLabel("P(c)");
+  fused_contact_prob_plot->setLineWidth(2.0);
+
+  auto contact_state_plot = std::make_unique<RealtimePlot>(sim.model(), 900, 450,
+                                                            "Contact state: estimated vs ground truth", 10.0);
+  contact_state_plot->setYLabel("contact (L: 0/1, R: 1.5/2.5)");
+  contact_state_plot->setLineWidth(2.0);
+  // Contact fusion accuracy (estimated vs. simulator contact state) while walking
+  long n_fusion_ticks = 0;
+  long n_fusion_correct[2] = {0, 0};
 
   VectorXd tau = VectorXd::Zero(robot.na());
 
@@ -269,7 +307,9 @@ int main(int argc, char **argv) {
   // cannot accumulate over the steps
   Matrix3d R_nominal_lf = Matrix3d::Identity(), R_nominal_rf = Matrix3d::Identity();
 
-  while (!sim.shouldClose() && !qp_failed && sim.time() <= simulation_time) {
+  while (!sim.shouldClose() && !qp_failed && sim.time() <= simulation_time) 
+  // while (!sim.shouldClose() && !qp_failed) 
+  {
     double simstart = sim.time();
 
     // Step physics at ~60 Hz visual frame rate
@@ -282,6 +322,22 @@ int main(int argc, char **argv) {
       const RobotState state = state_estimator.estimate(robot_sensors);
       utils::robotStateToPinocchio(state, q, v);
       contact_estimator.computeDisturbanceTorque(q, v, robot_sensors.actuator_state.torquej);
+
+      // Contact fusion (used by the walk planner if use_estimated_contact; always
+      // logged against the ground truth). Gait schedule from the walk planner's previous
+      // tick: the stance leg is scheduled in contact, the swing leg is not; both
+      // feet in double support (standing / init shift) with subphase 0.5
+      {
+        const LegState stance = walk_planner.getStanceLeg();
+        const double phi = (stance == LegState::DSt) ? 0.5 : walk_planner.getSwingPhase();
+        contact_estimator.fuseContactProbability({stance != LegState::RSt, stance != LegState::LSt}, {phi, phi});
+        // Accuracy against the simulator's contacts, while walking
+        if (t >= T_stand) {
+          ++n_fusion_ticks;
+          for (int i = 0; i < 2; ++i)
+            if (contact_estimator.getContactState(i) == state.contact_flags[i]) ++n_fusion_correct[i];
+        }
+      }
 
       // ------------------------------------------------------------------------
       // Initial standing task
@@ -326,7 +382,11 @@ int main(int argc, char **argv) {
       // ------------------------------------------------------------------------
       if (startWalking)
       {
-        walk_planner.planWalking(joystick, state_estimator, robot, tsid.data(), Tswing);
+        const std::vector<bool> contact_flags =
+            use_estimated_contact
+                ? std::vector<bool>{contact_estimator.getContactState(0), contact_estimator.getContactState(1)}
+                : state.contact_flags;
+        walk_planner.planWalking(joystick, state_estimator, robot, tsid.data(), Tswing, contact_flags);
         // CoM reference (world frame) with the planned velocity and acceleration
         // as feedforward (zero derivatives would make the Kd term brake the motion)
         com_sample.setValue(walk_planner.getCoMrefW());
@@ -423,6 +483,13 @@ int main(int argc, char **argv) {
                                               contact_estimator.getFootWrench(1)(2)));
       datalog.recItemData("f_gt_z", Vector2d(state_estimator.getContactForces()[0].z(),
                                              state_estimator.getContactForces()[1].z()));
+      datalog.recItemData("sole_z", Vector2d(contact_estimator.getFootHeight(0), contact_estimator.getFootHeight(1)));
+      datalog.recItemData("p_phase", Vector2d(contact_estimator.getPhaseProbability(0), contact_estimator.getPhaseProbability(1)));
+      datalog.recItemData("p_height", Vector2d(contact_estimator.getHeightProbability(0), contact_estimator.getHeightProbability(1)));
+      datalog.recItemData("p_force", Vector2d(contact_estimator.getForceProbability(0), contact_estimator.getForceProbability(1)));
+      datalog.recItemData("p_fused", Vector2d(contact_estimator.getContactProbability(0), contact_estimator.getContactProbability(1)));
+      datalog.recItemData("s_hat", Vector2d(contact_estimator.getContactState(0), contact_estimator.getContactState(1)));
+      datalog.recItemData("s_gt", Vector2d(state.contact_flags[0], state.contact_flags[1]));
       datalog.finishLine();
       // 6.6 Apply interactive user perturbations and step physics
       sim.stepPhysics();
@@ -439,16 +506,26 @@ int main(int argc, char **argv) {
     // tau_left_plot->render();
 
     // world frame, so the reference and the measured CoM are comparable
-    // com_plot->addPoint("ZMP_Y", sim.time(), walk_planner.getZMPrefW()[1]);
-    // com_plot->addPoint("CP_Y", sim.time(), walk_planner.getCapturedPointrefW()[1]);
-    com_plot->addPoint("CoM_Y_ref", sim.time(), walk_planner.getCoMrefW()[1]);
-    com_plot->addPoint("CoM_Y_fb", sim.time(), robot.com(tsid.data())[1]);
-    com_plot->render();
+    // Phase-based contact probability (paper Sec. IV-A) of each foot. Scheduled
+    // state: the stance leg is in contact, the swing leg is not; both feet are
+    // in contact in double support (standing / init shift). Subphase: the step
+    // phase for both feet, 0.5 (mid-stance) in double support.
+    {
+      const LegState stance = walk_planner.getStanceLeg();
+      const bool s_L = (stance != LegState::RSt);
+      const bool s_R = (stance != LegState::LSt);
+      const double phi = (stance == LegState::DSt) ? 0.5 : walk_planner.getSwingPhase();
+      phase_contact_prob_plot->addPoint("P_L", sim.time(), contact_estimator.getPhaseProbability(0));
+      phase_contact_prob_plot->addPoint("P_R", sim.time(), contact_estimator.getPhaseProbability(1));
+      phase_contact_prob_plot->addPoint("s_L", sim.time(), s_L ? 1.0 : 0.0);
+      phase_contact_prob_plot->addPoint("s_R", sim.time(), s_R ? 1.0 : 0.0);
+      phase_contact_prob_plot->render();
+    }
 
-    phase_plot->addPoint("Phi-CoM", sim.time(), walk_planner.getPhase()[0]);
-    phase_plot->addPoint("Phi-Lfeet", sim.time(), walk_planner.getPhase()[1]);
-    phase_plot->addPoint("Phi-Rfeet", sim.time(), walk_planner.getPhase()[2]);
-    phase_plot->render();
+    // Sole height used by the height contact model: world z of the lowest sole corner
+    foot_height_plot->addPoint("z_L", sim.time(), contact_estimator.getFootHeight(0));
+    foot_height_plot->addPoint("z_R", sim.time(), contact_estimator.getFootHeight(1));
+    foot_height_plot->render();
 
     // Estimated vs. ground-truth (MuJoCo contacts) vertical force of each foot
     force_plot->addPoint("L_est", sim.time(), contact_estimator.getFootWrench(0)(2));
@@ -457,17 +534,44 @@ int main(int argc, char **argv) {
     force_plot->addPoint("R_gt", sim.time(), state_estimator.getContactForces()[1].z());
     force_plot->render();
 
-    // Swing-foot plan: planned foot height vs. the measured foot heights, and
-    // in the viewer a green sphere at the planned swing-foot position with
-    // blue spheres at its liftoff and landing points
-    // if (startWalking) {
-    //   foot_plot->addPoint("Swing_Z_ref", sim.time(), foot_placement.getSwingDesPos().z());
-    //   foot_plot->addPoint("LFoot_Z", sim.time(), robot.framePosition(tsid.data(), lf_id).translation().z());
-    //   foot_plot->addPoint("RFoot_Z", sim.time(), robot.framePosition(tsid.data(), rf_id).translation().z());
-    //   foot_plot->addPoint("Swing_Leg(L=+0.1)", sim.time(),
-    //                       !foot_placement.isSwinging() ? 0.0 : foot_placement.isLeftSwing() ? 0.1 : -0.1);
-    //   foot_plot->render();
+    // Force-based contact probability (paper eq. 22) of each foot, from the
+    // vertical force estimated by the disturbance observer, against the
+    // simulator's ground-truth contact flags (vertical contact force > 20 N)
+    {
+      const std::vector<bool> &gt = state_estimator.getState().contact_flags;
+      force_contact_prob_plot->addPoint("P_L", sim.time(), contact_estimator.getForceProbability(0));
+      force_contact_prob_plot->addPoint("P_R", sim.time(), contact_estimator.getForceProbability(1));
+      force_contact_prob_plot->addPoint("gt_L", sim.time(), gt[0] ? 1.0 : 0.0);
+      force_contact_prob_plot->addPoint("gt_R", sim.time(), gt[1] ? 1.0 : 0.0);
+      force_contact_prob_plot->render();
 
+      // Height-based contact probability (paper eq. 20) from the lowest sole corner
+      height_contact_prob_plot->addPoint("P_L", sim.time(), contact_estimator.getHeightProbability(0));
+      height_contact_prob_plot->addPoint("P_R", sim.time(), contact_estimator.getHeightProbability(1));
+      height_contact_prob_plot->addPoint("gt_L", sim.time(), gt[0] ? 1.0 : 0.0);
+      height_contact_prob_plot->addPoint("gt_R", sim.time(), gt[1] ? 1.0 : 0.0);
+      height_contact_prob_plot->render();
+
+      // Kalman-fused contact probability vs. the simulator's contact state
+      fused_contact_prob_plot->addPoint("P_L", sim.time(), contact_estimator.getContactProbability(0));
+      fused_contact_prob_plot->addPoint("P_R", sim.time(), contact_estimator.getContactProbability(1));
+      fused_contact_prob_plot->addPoint("gt_L", sim.time(), gt[0] ? 1.0 : 0.0);
+      fused_contact_prob_plot->addPoint("gt_R", sim.time(), gt[1] ? 1.0 : 0.0);
+      fused_contact_prob_plot->render();
+
+      // Estimated contact state s_hat (hysteresis on the fused probability) vs.
+      // the simulator's contact state; right foot shifted by 1.5 so the feet
+      // do not overlap
+      contact_state_plot->addPoint("s_hat_L", sim.time(), contact_estimator.getContactState(0) ? 1.0 : 0.0);
+      contact_state_plot->addPoint("gt_L", sim.time(), gt[0] ? 1.0 : 0.0);
+      contact_state_plot->addPoint("s_hat_R", sim.time(), contact_estimator.getContactState(1) ? 2.5 : 1.5);
+      contact_state_plot->addPoint("gt_R", sim.time(), gt[1] ? 2.5 : 1.5);
+      contact_state_plot->render();
+    }
+
+    // Swing-foot plan in the viewer: a green sphere at the planned swing-foot
+    // position with blue spheres at its liftoff and landing points
+    // if (startWalking) {
     //   if (foot_placement.isSwinging()) {
     //     const float green[4] = {0.2f, 0.9f, 0.3f, 1.0f};
     //     const float blue[4] = {0.2f, 0.5f, 1.0f, 0.8f};
@@ -498,16 +602,23 @@ int main(int argc, char **argv) {
 
   // Flush and close log file
   datalog.close();
+  if (n_fusion_ticks > 0)
+    std::printf("[ContactFusion] contact state accuracy while walking: left %.2f %%, right %.2f %% (%ld ticks)\n",
+                100.0 * n_fusion_correct[0] / n_fusion_ticks, 100.0 * n_fusion_correct[1] / n_fusion_ticks,
+                n_fusion_ticks);
   std::cout << "Data saved to " << datalog.path() << " (" << datalog.numLines()
             << " lines)" << std::endl;
 
   // plot windows must be destroyed before GLFW shuts down
   // tau_right_plot.reset();
   // tau_left_plot.reset();
-  com_plot.reset();
-  foot_plot.reset();
+  phase_contact_prob_plot.reset();
+  force_contact_prob_plot.reset();
+  height_contact_prob_plot.reset();
+  fused_contact_prob_plot.reset();
+  contact_state_plot.reset();
   force_plot.reset();
-  phase_plot.reset();
+  foot_height_plot.reset();
   sim.Close();
   return 0;
 }

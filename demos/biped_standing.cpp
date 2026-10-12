@@ -44,8 +44,8 @@ using namespace Eigen;
 using tsid::contacts::Contact6d;
 
 int main(int argc, char **argv) {
-  const string XML_PATH = std::string(PROJECT_ROOT_DIR) + "/models/mjcf/scene_floatingbase_12dof_v2.xml";
-  const string URDF_PATH = std::string(PROJECT_ROOT_DIR) + "/models/urdf/v2_biped_robot_12dof.urdf";
+  const string XML_PATH = std::string(PROJECT_ROOT_DIR) + "/models/biped/mjcf/scene_floatingbase_12dof_v2.xml";
+  const string URDF_PATH = std::string(PROJECT_ROOT_DIR) + "/models/biped/urdf/v2_biped_robot_12dof.urdf";
   const string TSID_CONFIG_PATH = std::string(PROJECT_ROOT_DIR) + "/config/tsid_config.yaml";
 
   std::printf("====================================================\n");

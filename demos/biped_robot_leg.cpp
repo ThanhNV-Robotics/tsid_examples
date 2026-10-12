@@ -12,7 +12,7 @@
 
 using namespace std;
 using namespace Eigen;
-const string XML_PATH = std::string(PROJECT_ROOT_DIR) + "/models/mjcf/right_leg_scene.xml";
+const string XML_PATH = std::string(PROJECT_ROOT_DIR) + "/models/biped/mjcf/right_leg_scene.xml";
 const string URDF_PATH = std::string(PROJECT_ROOT_DIR) + "/models/biped/biped.urdf";
 
 int main(int argc, char **argv) {

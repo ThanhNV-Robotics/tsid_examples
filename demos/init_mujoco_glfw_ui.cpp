@@ -5,7 +5,7 @@
 
 #include "sim/Robot_Simulator.h"
 
-const std::string BIPED_MODEL_DIR = std::string(PROJECT_ROOT_DIR) + "/models/mjcf";
+const std::string BIPED_MODEL_DIR = std::string(PROJECT_ROOT_DIR) + "/models/biped/mjcf";
 
 int main(int argc, char** argv) {
   std::printf("MuJoCo version %s\n", mj_versionString());
