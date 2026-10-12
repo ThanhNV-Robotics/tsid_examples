@@ -109,6 +109,11 @@ class WalkPlanner
         double stance_z_W_{0.0};     // stance ankle height (world z), captured on entering stance
         bool swing_lifted_{false};   // swing foot has left the ground during this step
         double phi_td_min_{0.7};     // earliest step phase at which a touchdown is accepted
+        // Event-based touchdown (Bledt et al. ICRA 2018, Sec. VI): the swing foot's
+        // contact must hold for this long before the step ends, so a light touch
+        // or a fleeting contact does not switch the support leg
+        double td_confirm_time_{0.025};   // s
+        double swing_contact_time_{0.0};  // how long the swing foot has been in contact
 
         // ZMP limits in the stance-ankle frame: sole box of the ankle link's URDF
         // collision (x in [-0.05, 0.13], |y| <= 0.03) shrunk by a 1 cm margin

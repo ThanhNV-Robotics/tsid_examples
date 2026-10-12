@@ -112,6 +112,11 @@ class ContactFusion
         std::vector<Eigen::Matrix3Xd> sole_corners_; // per foot, in the foot frame
         std::vector<double> foot_height_;            // per foot, world z of the lowest sole corner
         Jacobian6 J_; // foot frame Jacobian buffer (6 x nv)
+        // Damping of the per-foot wrench solve (units of the Jacobian, m / rad):
+        // singular values of S_i J_i^T well above it are kept, those below are
+        // suppressed instead of inverted
+        const double wrench_damping_ = 0.02;
+        double f_z_max_ = 1000.0; // N, clamp of the vertical foot force, 3 m g (set in the constructor)
 
         bool initialized_ = false;
 

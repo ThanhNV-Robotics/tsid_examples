@@ -155,7 +155,7 @@ int main(int argc, char **argv) {
   // and through its step event by the TSID contact switching.
   // true: estimated by ContactFusion (no foot sensor).
   // false: simulator ground truth (MuJoCo contact forces > 20 N).
-  const bool use_estimated_contact = false;
+  const bool use_estimated_contact = true;
 
   // Walking speed command (YAML "walk_planner: foot_placement:" block)
   const YAML::Node wp_cfg = YAML::LoadFile(TSID_CONFIG_PATH)["walk_planner"];
@@ -307,8 +307,8 @@ int main(int argc, char **argv) {
   // cannot accumulate over the steps
   Matrix3d R_nominal_lf = Matrix3d::Identity(), R_nominal_rf = Matrix3d::Identity();
 
-  while (!sim.shouldClose() && !qp_failed && sim.time() <= simulation_time) 
-  // while (!sim.shouldClose() && !qp_failed) 
+  // while (!sim.shouldClose() && !qp_failed && sim.time() <= simulation_time) 
+  while (!sim.shouldClose() && !qp_failed) 
   {
     double simstart = sim.time();
 

@@ -1,11 +1,14 @@
 #include "estimation/contact_fusion.h"
 #include "common/data_type.h"
 
+#include <algorithm>                        // std::clamp
 #include <cmath>                            // std::exp, M_PI
 #include <pinocchio/algorithm/crba.hpp>     // pinocchio::crba (mass matrix)
 #include <pinocchio/algorithm/rnea.hpp>     // computeCoriolisMatrix, computeGeneralizedGravity
 #include <pinocchio/algorithm/jacobian.hpp> // computeJointJacobians
 #include <pinocchio/algorithm/frames.hpp>   // updateFramePlacements, getFrameJacobian
+#include <pinocchio/algorithm/center-of-mass.hpp> // computeTotalMass
+#include <Eigen/SVD>
 #include <stdexcept>
 
 // Constructor
@@ -27,6 +30,9 @@ ContactFusion::ContactFusion(const pinocchio::Model &model, const std::vector<st
     this->y_ = VectorXd::Zero(model.nv);
     this->tau_d_ = VectorXd::Zero(model.nv);
     this->J_ = Jacobian6::Zero(6, model.nv);
+    // Physical range of the vertical foot force: the ground only pushes, and a
+    // walking step stays far below 3 m g
+    this->f_z_max_ = 3.0 * pinocchio::computeTotalMass(model) * 9.81;
 
     // Leg joints of each foot: every actuated joint on the path from the base
     // to the foot frame (model.supports = joints from the root to that joint).
@@ -188,7 +194,15 @@ void ContactFusion::computeFootWrenches (const VectorXd &q)
             SJt.row(k) = J_.col(dofs[k]).transpose();
             Stau_d(k) = tau_d_(dofs[k]);
         }
-        // QR instead of a plain inverse: stays usable near a straight-knee singularity
-        foot_wrench_[i] = SJt.colPivHouseholderQr().solve(Stau_d);
+        // Damped least squares: w = V diag(s / (s^2 + lambda^2)) U^T (S_i tau_d).
+        // Near a straight-knee singularity S_i J_i^T has a tiny singular value;
+        // an exact solve (inverse / QR) divides the observer noise by it and the
+        // estimate blows up (|f| ~ 1e5 N seen at the end of stance). Damping
+        // drops those directions instead.
+        const Eigen::JacobiSVD<MatrixXd> svd(SJt, Eigen::ComputeFullU | Eigen::ComputeFullV);
+        const VectorXd s = svd.singularValues();
+        const VectorXd s_damped = s.cwiseQuotient((s.array().square() + wrench_damping_ * wrench_damping_).matrix());
+        foot_wrench_[i] = svd.matrixV() * s_damped.asDiagonal() * svd.matrixU().transpose() * Stau_d;
+        foot_wrench_[i](2) = std::clamp(foot_wrench_[i](2), 0.0, f_z_max_);
     }
 }

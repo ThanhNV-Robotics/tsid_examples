@@ -68,6 +68,7 @@ WalkPlanner::WalkPlanner(const YAML::Node &cfg, const double zIn)
     this->sole_x_max_ = readOr(cfg, "sole_x_max", this->sole_x_max_);
     this->sole_y_half_ = readOr(cfg, "sole_y_half", this->sole_y_half_);
     this->phi_td_min_ = readOr(cfg, "touchdown_phase_min", this->phi_td_min_);
+    this->td_confirm_time_ = readOr(cfg, "touchdown_confirm_time", this->td_confirm_time_);
 
     this->zc_ = zIn;
     this->w = std::sqrt(this->g/this->zc_);
@@ -240,13 +241,18 @@ void WalkPlanner::planWalking (JoyStickInterpreter &joystick, Cheat_StateEstimat
             const bool left_stance = (stance_leg_ == LegState::LSt);
             const bool swing_contact = contact_flags[left_stance ? 1 : 0];
             if (!swing_contact) swing_lifted_ = true;
+            // Time the swing foot has been back in contact without interruption
+            swing_contact_time_ = (swing_lifted_ && swing_contact) ? swing_contact_time_ + dt_ : 0.0;
 
-            // Early touchdown: the swing foot lifted and is back on the ground
-            // late enough in the step (rejects flicker right after lift-off).
+            // Early touchdown: the swing foot lifted and is back on the ground,
+            // confirmed for td_confirm_time_ (a light touch just before phi = 1
+            // or a bounce does not end the step), late enough in the step
+            // (rejects flicker right after lift-off).
             // Otherwise the step always ends on time: the swing trajectory has
             // brought the foot down by phi = 1, and waiting for the contact flag
             // instead lets the CP diverge (constant ZMP on the old stance foot)
-            const bool touchdown = swing_lifted_ && swing_contact && phi_CoM >= phi_td_min_;
+            const bool touchdown = swing_lifted_ && swing_contact_time_ >= td_confirm_time_
+                                   && phi_CoM >= phi_td_min_;
             const bool step_end = phi_CoM >= 1.0;
             if (touchdown || step_end) {
                 enterStance(left_stance ? LegState::RSt : LegState::LSt, robot_wrapper, data);
@@ -314,6 +320,7 @@ void WalkPlanner::enterStance(LegState stance, const tsid::robots::RobotWrapper 
     this->cxi_y0_ = this->cxi_y_;
     this->phi_CoM = 0.0;
     this->swing_lifted_ = false;
+    this->swing_contact_time_ = 0.0;
     this->stance_z_W_ = oMst.translation().z();
     this->stance_changed_ = true;
 }
