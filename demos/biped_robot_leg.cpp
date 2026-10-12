@@ -6,14 +6,14 @@
 #include <string>
 #include <vector>
 
-#include "Robot_Simulator.h"
+#include "sim/Robot_Simulator.h"
 #include <Eigen/Dense>
 #include <mujoco/mujoco.h>
 
 using namespace std;
 using namespace Eigen;
-const string XML_PATH = "models/mjcf/right_leg_scene.xml";
-const string URDF_PATH = "models/biped/biped.urdf";
+const string XML_PATH = std::string(PROJECT_ROOT_DIR) + "/models/mjcf/right_leg_scene.xml";
+const string URDF_PATH = std::string(PROJECT_ROOT_DIR) + "/models/biped/biped.urdf";
 
 int main(int argc, char **argv) {
   std::cout << "MuJoCo version: " << mj_versionString() << std::endl;

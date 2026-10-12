@@ -1,7 +1,7 @@
-#include "walk_planner.h"
+#include "planning/walk_planner.h"
 #include <algorithm>
-#include "data_type.h"
-#include "joystick_interpreter.h"
+#include "common/data_type.h"
+#include "planning/joystick_interpreter.h"
 #include <cmath>
 #include <stdexcept>
 #include <iostream>

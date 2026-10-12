@@ -41,14 +41,14 @@ tsid.getActuatorForces()            → tau → sim.setControl(tau)
 
 | Component | File |
 |---|---|
-| Simulator, viewer, real-time plots, CoM / sphere markers | [sim_interface/Robot_Simulator.h](sim_interface/Robot_Simulator.h) |
-| Ground-truth state estimator | [algorithms/cheat_state_estimator.h](algorithms/cheat_state_estimator.h) |
-| Walk planner: step timing, CoM / CP / ZMP, footholds (design note: [walk_planner.md](walk_planner.md)) | [algorithms/walk_planner.h](algorithms/walk_planner.h) |
-| Swing-foot trajectory | [algorithms/foot_placement.h](algorithms/foot_placement.h) |
-| YAML → TSID tasks, contacts, swing switching | [common/parse_tsid_tasks.h](common/parse_tsid_tasks.h) |
-| Shared data types | [common/data_type.h](common/data_type.h) |
-| CSV logger | [common/data_logger.h](common/data_logger.h) |
-| IK, quintic trajectory, state conversion | [utils/utils.h](utils/utils.h) |
+| Simulator, viewer, real-time plots, CoM / sphere markers | [include/sim/Robot_Simulator.h](include/sim/Robot_Simulator.h) |
+| Ground-truth state estimator | [include/estimation/cheat_state_estimator.h](include/estimation/cheat_state_estimator.h) |
+| Walk planner: step timing, CoM / CP / ZMP, footholds (design note: [walk_planner.md](walk_planner.md)) | [include/planning/walk_planner.h](include/planning/walk_planner.h) |
+| Swing-foot trajectory | [include/planning/foot_placement.h](include/planning/foot_placement.h) |
+| YAML → TSID tasks, contacts, swing switching | [include/control/parse_tsid_tasks.h](include/control/parse_tsid_tasks.h) |
+| Shared data types | [include/common/data_type.h](include/common/data_type.h) |
+| CSV logger | [include/common/data_logger.h](include/common/data_logger.h) |
+| IK, quintic trajectory, state conversion | [include/common/utils.h](include/common/utils.h) |
 | Demos | [demos/biped_standing.cpp](demos/biped_standing.cpp), [demos/biped_walking.cpp](demos/biped_walking.cpp) |
 
 ---
@@ -142,7 +142,7 @@ case about 0.8 ms, so well inside the 1 ms period.
 
 ## 3. Planning
 
-`WalkPlanner` ([algorithms/walk_planner.h](algorithms/walk_planner.h)) plans
+`WalkPlanner` ([include/planning/walk_planner.h](include/planning/walk_planner.h)) plans
 the CoM, the capture point (CP), the ZMP and the footholds, and decides the
 step timing. The full design is in [walk_planner.md](walk_planner.md); this
 section summarizes what is implemented.

@@ -10,7 +10,7 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
 
 #include <cmath>
 
-#include "data_type.h"
+#include "common/data_type.h"
 
 // Linear ramp from the current output to a target value, stepped once per dt
 class RampTrajectory {

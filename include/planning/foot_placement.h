@@ -10,9 +10,9 @@ Copyright (C) 2024-2025 Humanoid Robot (Shanghai) Co., Ltd.
 #include <string>
 #include <tsid/robots/robot-wrapper.hpp>
 
-#include "data_type.h"
-#include "joystick_interpreter.h"
-#include "walk_planner.h"
+#include "common/data_type.h"
+#include "planning/joystick_interpreter.h"
+#include "planning/walk_planner.h"
 
 // Swing-foot planner: picks the landing position of the swing foot and
 // generates a cycloid swing trajectory (position, velocity, acceleration in

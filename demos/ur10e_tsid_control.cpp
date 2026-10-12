@@ -43,7 +43,7 @@
 #include <tsid/trajectories/trajectory-base.hpp>
 
 // Unified Simulator
-#include "Robot_Simulator.h"
+#include "sim/Robot_Simulator.h"
 
 using namespace tsid;
 using namespace tsid::robots;
@@ -53,8 +53,8 @@ using namespace tsid::trajectories;
 using namespace std;
 
 int main(int argc, char **argv) {
-  const std::string xml_path = "models/ur10e/scene_ur10.xml";
-  const std::string urdf_path = "models/ur10e/ur10e.urdf";
+  const std::string xml_path = std::string(PROJECT_ROOT_DIR) + "/models/ur10e/scene_ur10.xml";
+  const std::string urdf_path = std::string(PROJECT_ROOT_DIR) + "/models/ur10e/ur10e.urdf";
 
   std::printf("====================================================\n");
   std::printf("  UR10e TSID Operational Space Control with MuJoCo  \n");

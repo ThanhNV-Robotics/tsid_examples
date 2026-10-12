@@ -21,7 +21,7 @@
 #include <pinocchio/multibody/fwd.hpp>
 #include <pinocchio/spatial/explog.hpp>
 
-#include "data_type.h"
+#include "common/data_type.h"
 using namespace std;
 
 namespace utils {

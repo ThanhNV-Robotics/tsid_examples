@@ -19,10 +19,10 @@
 #include <tsid/trajectories/trajectory-base.hpp>
 
 // Unified Simulator
-#include "Robot_Simulator.h"
+#include "sim/Robot_Simulator.h"
 #include "fstream"
 
-#include "utils.h" // supporting functions
+#include "common/utils.h" // supporting functions
 
 using namespace tsid;
 using namespace tsid::robots;
@@ -34,8 +34,8 @@ using namespace Eigen;
 using namespace utils;
 
 int main(int argc, char **argv) {
-  const std::string XML_PATH = "models/ur10e/scene_ur10.xml";
-  const std::string URDF_PATH = "models/ur10e/ur10e.urdf";
+  const std::string XML_PATH = std::string(PROJECT_ROOT_DIR) + "/models/ur10e/scene_ur10.xml";
+  const std::string URDF_PATH = std::string(PROJECT_ROOT_DIR) + "/models/ur10e/ur10e.urdf";
 
   std::printf("====================================================\n");
   std::printf("  UR10e TSID Operational Space Control with MuJoCo  \n");
@@ -133,7 +133,7 @@ int main(int argc, char **argv) {
   // ------------------------------------------------------------------------
   // csv file log
   // ------------------------------------------------------------------------
-  std::ofstream datalog(("record/ur10_joint_space_control.csv"));
+  std::ofstream datalog((std::string(PROJECT_ROOT_DIR) + "/record/ur10_joint_space_control.csv"));
   vector<string> joint_names = utils::getJointNames(m);
   datalog << "time";
   for (const auto &name : joint_names)

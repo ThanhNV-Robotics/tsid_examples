@@ -3,7 +3,7 @@ Adapted from OpenLoong Dynamics Control, an open project for the control of bipe
 Copyright (C) 2024-2025 Humanoid Robot (Shanghai) Co., Ltd.
  <https://atomgit.com/openloong/openloong-dyn-control.git>
 */
-#include "foot_placement.h"
+#include "planning/foot_placement.h"
 
 #include <algorithm>
 #include <cmath>

@@ -14,17 +14,17 @@
 #include <tsid/trajectories/trajectory-base.hpp>
 
 // Project
-#include "Robot_Simulator.h"       // MuJoCo simulator, viewer and RealtimePlot
-#include "cheat_state_estimator.h" // ground-truth state estimator
-#include "data_logger.h"           // CSV logging
-#include "data_type.h"             // RobotSensor, RobotState
-#include "joystick_interpreter.h"
-#include "parse_tsid_tasks.h" // builds TSID contacts and tasks from YAML
-#include "utils.h"            // IK, trajectories, Pinocchio helpers
-#include "foot_placement.h"
+#include "sim/Robot_Simulator.h"       // MuJoCo simulator, viewer and RealtimePlot
+#include "estimation/cheat_state_estimator.h" // ground-truth state estimator
+#include "common/data_logger.h"           // CSV logging
+#include "common/data_type.h"             // RobotSensor, RobotState
+#include "planning/joystick_interpreter.h"
+#include "control/parse_tsid_tasks.h" // builds TSID contacts and tasks from YAML
+#include "common/utils.h"            // IK, trajectories, Pinocchio helpers
+#include "planning/foot_placement.h"
 #include <yaml-cpp/yaml.h>
-#include "walk_planner.h"
-#include "contact_fusion.h" // for contact estimation
+#include "planning/walk_planner.h"
+#include "estimation/contact_fusion.h" // for contact estimation
 
 using namespace tsid;
 using namespace tsid::robots;
@@ -37,9 +37,9 @@ using namespace Eigen;
 using tsid::contacts::Contact6d;
 
 int main(int argc, char **argv) {
-  const string XML_PATH = "models/mjcf/scene_floatingbase_12dof_v2.xml";
-  const string URDF_PATH = "models/urdf/v2_biped_robot_12dof.urdf";
-  const string TSID_CONFIG_PATH = "config/tsid_config.yaml";
+  const string XML_PATH = std::string(PROJECT_ROOT_DIR) + "/models/mjcf/scene_floatingbase_12dof_v2.xml";
+  const string URDF_PATH = std::string(PROJECT_ROOT_DIR) + "/models/urdf/v2_biped_robot_12dof.urdf";
+  const string TSID_CONFIG_PATH = std::string(PROJECT_ROOT_DIR) + "/config/tsid_config.yaml";
   const double hip_width = 0.334;
   const double init_base_height = 0.78;
   const double dt = 0.001;
@@ -183,7 +183,7 @@ int main(int argc, char **argv) {
   // Trajectory parameters: smoothly reach standing pose in 3 seconds
 
   // Setup CSV log
-  DataLogger datalog("record/biped_standing_joint_control.csv");
+  DataLogger datalog(std::string(PROJECT_ROOT_DIR) + "/record/biped_standing_joint_control.csv");
   vector<string> joint_names = utils::getJointNames(sim.model());
   // MuJoCo joint list is [floating_base_joint, 12 leg joints]
   const vector<string> leg_joint_names(joint_names.end() - robot.na(),

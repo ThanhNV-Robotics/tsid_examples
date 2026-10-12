@@ -6,7 +6,7 @@ Feel free to use in any purpose, and cite OpenLoong-Dynamics-Control in any styl
  <web@openloong.org.cn>
 */
 
-#include "joystick_interpreter.h"
+#include "planning/joystick_interpreter.h"
 
 void RampTrajectory::setPara(double yDesIn, double timeToReach) {
     yDes=yDesIn;

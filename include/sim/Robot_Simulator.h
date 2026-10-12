@@ -16,7 +16,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include "data_type.h"
+#include "common/data_type.h"
 
 
 // Optional YAML support for joint configurations

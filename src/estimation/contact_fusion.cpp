@@ -1,5 +1,5 @@
-#include "contact_fusion.h"
-#include "data_type.h"
+#include "estimation/contact_fusion.h"
+#include "common/data_type.h"
 
 #include <cmath>                            // std::exp, M_PI
 #include <pinocchio/algorithm/crba.hpp>     // pinocchio::crba (mass matrix)

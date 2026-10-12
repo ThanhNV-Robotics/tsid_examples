@@ -23,7 +23,7 @@ The paper has three parts. Each becomes one part of the implementation:
 | Paper | What it does | Here |
 |---|---|---|
 | §III | Discrete-time generalized-momentum (GM) disturbance observer → per-foot force estimate without a force sensor | `MomentumObserver` (new) |
-| §IV | Kalman-filter fusion of 3 contact probabilities: gait phase (prior), foot height, estimated foot force | `ContactFusion` (`algorithms/contact_fusion.h`, currently a stub) |
+| §IV | Kalman-filter fusion of 3 contact probabilities: gait phase (prior), foot height, estimated foot force | `ContactFusion` (`include/estimation/contact_fusion.h`, currently a stub) |
 | §VI | Event-based FSM per leg: Swing / Contact / Early / Late | changes in `WalkPlanner` + `biped_walking.cpp` |
 
 ---
@@ -248,7 +248,7 @@ Eq. (26) with hysteresis, as the paper describes:
 
 ### 2.6 Class layout
 
-`algorithms/momentum_observer.h/.cpp`
+`{include,src}/estimation/momentum_observer.{h,cpp}`
 
 ```cpp
 class MomentumObserver {
@@ -267,7 +267,7 @@ private:
 };
 ```
 
-`algorithms/contact_fusion.h/.cpp` (replaces the stub, which also has a syntax
+`{include,src}/estimation/contact_fusion.{h,cpp}` (replaces the stub, which also has a syntax
 error: `class ContactFusion:`)
 
 ```cpp
@@ -410,20 +410,20 @@ behaviour exactly.
 
 | File | Action |
 |---|---|
-| `algorithms/momentum_observer.h/.cpp` | new |
-| `algorithms/contact_fusion.h/.cpp` | rewrite the stub |
-| `algorithms/cheat_state_estimator.h/.cpp` | remove touch-sensor contact flags |
-| `common/data_type.h` | remove `left/right_touch_sensor` from `RobotSensor`; `RobotState::contact_flags` filled from `ContactFusion` |
-| `sim_interface/Robot_Simulator.h/.cpp` | remove touch-sensor reads; add `getGroundTruthContacts()` (evaluation only) |
+| `{include,src}/estimation/momentum_observer.{h,cpp}` | new |
+| `{include,src}/estimation/contact_fusion.{h,cpp}` | rewrite the stub |
+| `{include,src}/estimation/cheat_state_estimator.{h,cpp}` | remove touch-sensor contact flags |
+| `include/common/data_type.h` | remove `left/right_touch_sensor` from `RobotSensor`; `RobotState::contact_flags` filled from `ContactFusion` |
+| `{include,src}/sim/Robot_Simulator.{h,cpp}` | remove touch-sensor reads; add `getGroundTruthContacts()` (evaluation only) |
 | `models/mjcf/*biped*.xml` | remove `<touch>` sensors and their `*-tc` sites |
-| `algorithms/walk_planner.h/.cpp` | prior getters per foot; event-based touchdown (step 4) |
-| `algorithms/foot_placement.h/.cpp` | swing freeze / extend-down hooks (step 4) |
+| `{include,src}/planning/walk_planner.{h,cpp}` | prior getters per foot; event-based touchdown (step 4) |
+| `{include,src}/planning/foot_placement.{h,cpp}` | swing freeze / extend-down hooks (step 4) |
 | `demos/biped_walking.cpp` | wiring, logging, metrics |
 | `config/tsid_config.yaml` | `contact_fusion:` block |
 | `scripts/tune_contact_fusion.py` | new (step 5) |
 | `doc/tsid.md` | add a pipeline section once step 3 works |
 
-CMake needs no change: `algorithms/*.cpp` is globbed.
+CMake needs no change: `src/**/*.cpp` is globbed.
 
 ## 7. Order and milestones
 

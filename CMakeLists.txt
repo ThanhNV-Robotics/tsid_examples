@@ -63,16 +63,13 @@ endif()
 string(PREPEND CMAKE_EXE_LINKER_FLAGS "-Wl,--no-as-needed -ltinyxml2 ")
 
 # -----------------------------------------------------------------------------
-# Core Library: bundles sim_interface + Pinocchio + MuJoCo + TSID + GLFW + Eigen
+# Core Library: bundles src/ (sim, control, planning, estimation, common) + Pinocchio + MuJoCo + TSID + GLFW + Eigen
 # -----------------------------------------------------------------------------
-# Every .cpp in these folders is compiled automatically. CONFIGURE_DEPENDS makes
+# Every .cpp under src/ is compiled automatically. CONFIGURE_DEPENDS makes
 # the build re-scan the folders, so new files are picked up without re-running
 # cmake by hand.
-file(GLOB CORE_SOURCES CONFIGURE_DEPENDS
-  ${CMAKE_CURRENT_SOURCE_DIR}/sim_interface/*.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/utils/*.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/*.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/common/*.cpp
+file(GLOB_RECURSE CORE_SOURCES CONFIGURE_DEPENDS
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
 )
 
 # Backup copies such as "foo copy.cpp" are never compiled (they would define
@@ -80,15 +77,16 @@ file(GLOB CORE_SOURCES CONFIGURE_DEPENDS
 list(FILTER CORE_SOURCES EXCLUDE REGEX " copy\\.cpp$")
 
 add_library(core STATIC ${CORE_SOURCES})
+# Headers are included with their module folder, e.g. "estimation/contact_fusion.h"
 target_include_directories(core PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/sim_interface
-  ${CMAKE_CURRENT_SOURCE_DIR}/algorithms
-  ${CMAKE_CURRENT_SOURCE_DIR}/utils
-  ${CMAKE_CURRENT_SOURCE_DIR}/common
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
   /usr/local/include
 )
+# PROJECT_ROOT_DIR: absolute repo path, so the demos find models/, config/ and
+# record/ whatever directory they are started from
 target_compile_definitions(core PUBLIC
   COAL_DISABLE_HPP_FCL_WARNINGS
+  PROJECT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
 )
 target_link_libraries(core PUBLIC
   tinyxml2::tinyxml2

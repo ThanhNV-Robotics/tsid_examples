@@ -1,6 +1,6 @@
 #pragma once
 
-#include "data_type.h"
+#include "common/data_type.h"
 
 #include <string>
 #include <vector>

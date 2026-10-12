@@ -24,14 +24,14 @@
 #include <tsid/trajectories/trajectory-base.hpp>
 
 // Unified Simulator
-#include "Robot_Simulator.h"
+#include "sim/Robot_Simulator.h"
 #include "fstream"
 
-#include "cheat_state_estimator.h"
-#include "utils.h" // supporting functions
-#include "data_logger.h"
-#include "data_type.h"
-#include "parse_tsid_tasks.h"
+#include "estimation/cheat_state_estimator.h"
+#include "common/utils.h" // supporting functions
+#include "common/data_logger.h"
+#include "common/data_type.h"
+#include "control/parse_tsid_tasks.h"
 
 using namespace tsid;
 using namespace tsid::robots;
@@ -44,9 +44,9 @@ using namespace Eigen;
 using tsid::contacts::Contact6d;
 
 int main(int argc, char **argv) {
-  const string XML_PATH = "models/mjcf/scene_floatingbase_12dof_v2.xml";
-  const string URDF_PATH = "models/urdf/v2_biped_robot_12dof.urdf";
-  const string TSID_CONFIG_PATH = "config/tsid_config.yaml";
+  const string XML_PATH = std::string(PROJECT_ROOT_DIR) + "/models/mjcf/scene_floatingbase_12dof_v2.xml";
+  const string URDF_PATH = std::string(PROJECT_ROOT_DIR) + "/models/urdf/v2_biped_robot_12dof.urdf";
+  const string TSID_CONFIG_PATH = std::string(PROJECT_ROOT_DIR) + "/config/tsid_config.yaml";
 
   std::printf("====================================================\n");
   std::printf("  Biped TSID Standing Posture Control with MuJoCo   \n");
@@ -152,7 +152,7 @@ int main(int argc, char **argv) {
   const double T_stand = 3.0; // seconds
 
   // Setup CSV log
-  DataLogger datalog("record/biped_standing_joint_control.csv");
+  DataLogger datalog(std::string(PROJECT_ROOT_DIR) + "/record/biped_standing_joint_control.csv");
   vector<string> joint_names = utils::getJointNames(sim.model());
   // MuJoCo joint list is [floating_base_joint, 12 leg joints]
   const vector<string> leg_joint_names(joint_names.end() - robot.na(), joint_names.end());

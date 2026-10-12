@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "data_type.h"
+#include "common/data_type.h"
 
 // "Cheating" state estimator: instead of fusing IMU / kinematics / contacts,
 // it reads the ground-truth floating-base state directly from MuJoCo.

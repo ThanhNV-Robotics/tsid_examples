@@ -1,8 +1,8 @@
 #pragma once
 #include "Eigen/Dense"
-#include "cheat_state_estimator.h"
-#include "data_type.h"
-#include "joystick_interpreter.h"
+#include "estimation/cheat_state_estimator.h"
+#include "common/data_type.h"
+#include "planning/joystick_interpreter.h"
 
 #include <algorithm>
 #include <string>
