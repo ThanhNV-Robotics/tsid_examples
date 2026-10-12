@@ -6,6 +6,9 @@ left and right legs from a TSID simulation log (written by DataLogger).
 
 Expected CSV columns: time, pos_cmd_<joint>, pos_measured_<joint>, tau_cmd_<joint>
 Generates 4 figures: left/right leg positions and left/right leg torques.
+If the log has f_est_z_{L,R} and f_gt_z_{L,R} (or f_touch_{L,R} in older logs),
+a figure compares the contact force estimated by the momentum observer with the
+simulator's ground-truth contact force.
 """
 
 import argparse
@@ -38,6 +41,13 @@ def parse_args():
         default="record/biped_joint_control",
         help="Path prefix for the saved images; '_<plot>.png' is appended "
         "(default: record/biped_joint_control). Pass '' to skip saving.",
+    )
+    parser.add_argument(
+        "--contact-level",
+        type=float,
+        default=20.0,
+        help="Reference force above which a foot counts as in contact, for the shading "
+        "and the contact/swing RMSE [N] (default: 20, same as Cheat_StateEstimator)",
     )
     parser.add_argument(
         "--no-show",
@@ -116,6 +126,65 @@ def plot_torques(df, time, leg, joints):
     return fig
 
 
+def contact_spans(time, in_contact):
+    """(t_start, t_end) of every interval where in_contact is True."""
+    edges = np.diff(np.concatenate(([0], in_contact.astype(int), [0])))
+    starts, ends = np.flatnonzero(edges == 1), np.flatnonzero(edges == -1) - 1
+    return [(time[s], time[e]) for s, e in zip(starts, ends)]
+
+
+def plot_contact_forces(df, time, contact_level, ref):
+    """Estimated (momentum observer) vs reference vertical force per foot, and their sum.
+
+    ref: column prefix of the reference force, "f_gt_z" (MuJoCo contact forces)
+    or "f_ref" (touch sensors, older logs)
+    """
+    ref_name = "ground truth" if ref == "f_gt_z" else "touch sensor"
+    fig, axes = plt.subplots(3, 1, figsize=(14, 9), sharex=True)
+    fig.suptitle(f"Foot contact force: observer estimate vs {ref_name}", fontsize=14, fontweight="bold")
+    print(f"\nContact force ({ref_name} > {contact_level:.0f} N = in contact)")
+    print(f"  {'Foot':<6} | {'RMSE (N)':>8} | {'RMSE contact (N)':>16} | {'RMSE swing (N)':>14} | {'Max err (N)':>11}")
+    for ax, side, name in zip(axes, ("L", "R"), ("Left", "Right")):
+        f_est = df[f"f_est_z_{side}"].to_numpy()
+        f_ref = df[f"{ref}_{side}"].to_numpy()
+        err = f_est - f_ref
+        in_contact = f_ref > contact_level
+
+        def rmse(mask):
+            return np.sqrt(np.mean(err[mask] ** 2)) if mask.any() else float("nan")
+
+        rmse_all, rmse_st, rmse_sw = rmse(np.ones_like(in_contact)), rmse(in_contact), rmse(~in_contact)
+        print(f"  {name:<6} | {rmse_all:>8.2f} | {rmse_st:>16.2f} | {rmse_sw:>14.2f} | {np.max(np.abs(err)):>11.2f}")
+
+        # Shade the intervals where the reference reports contact
+        for k, (t0, t1) in enumerate(contact_spans(time, in_contact)):
+            ax.axvspan(t0, t1, color="tab:gray", alpha=0.12, label=f"contact ({ref_name})" if k == 0 else None)
+        ax.plot(time, f_ref, "r--", linewidth=1.6, label=f"$f_z$ ({ref_name})")
+        ax.plot(time, f_est, "b-", linewidth=1.1, alpha=0.85, label="$\\hat f_z$ (observer)")
+        ax.axhline(0.0, color="black", linestyle=":", linewidth=0.8, alpha=0.7)
+        ax.set_title(f"{name} foot (RMSE contact {rmse_st:.1f} N, swing {rmse_sw:.1f} N)",
+                     fontsize=11, fontweight="semibold")
+        ax.set_ylabel("$F_z$ [N]", fontsize=10)
+        ax.grid(True, linestyle="--", alpha=0.6)
+        ax.legend(loc="upper right", framealpha=0.8, fontsize=9)
+
+    # Sum of both feet: the total vertical ground reaction (about m g when the
+    # CoM does not accelerate vertically)
+    ax = axes[2]
+    est_sum = df["f_est_z_L"].to_numpy() + df["f_est_z_R"].to_numpy()
+    ref_sum = df[f"{ref}_L"].to_numpy() + df[f"{ref}_R"].to_numpy()
+    ax.plot(time, ref_sum, "r--", linewidth=1.6, label=f"$f_{{z,L}} + f_{{z,R}}$ ({ref_name})")
+    ax.plot(time, est_sum, "b-", linewidth=1.1, alpha=0.85, label="$\\hat f_{z,L} + \\hat f_{z,R}$")
+    ax.set_title(f"Total vertical force (mean {ref_name} {np.mean(ref_sum):.1f} N, "
+                 f"mean estimate {np.mean(est_sum):.1f} N)", fontsize=11, fontweight="semibold")
+    ax.set_ylabel("$F_z$ [N]", fontsize=10)
+    ax.set_xlabel("Time [s]", fontsize=10)
+    ax.grid(True, linestyle="--", alpha=0.6)
+    ax.legend(loc="upper right", framealpha=0.8, fontsize=9)
+    fig.tight_layout()
+    return fig
+
+
 def main():
     args = parse_args()
 
@@ -145,13 +214,21 @@ def main():
     for leg in LEGS:
         leg_pos = [j for j in pos_joints if j.startswith(leg + "_")]
         leg_tau = [j for j in tau_joints if j.startswith(leg + "_")]
-        if leg_pos:
-            figures[f"{leg}_position"] = plot_positions(df, time, leg, leg_pos)
+        # Joint angle plots disabled
+        # if leg_pos:
+        #     figures[f"{leg}_position"] = plot_positions(df, time, leg, leg_pos)
         if leg_tau:
             figures[f"{leg}_torque"] = plot_torques(df, time, leg, leg_tau)
     if not figures:
         print("[Error] No joints named 'left_*' or 'right_*' found in CSV.")
         sys.exit(1)
+
+    # Reference force: MuJoCo contact forces, or the touch sensors in older logs
+    ref = next((r for r in ("f_gt_z", "f_touch") if f"{r}_L" in df.columns and f"{r}_R" in df.columns), None)
+    if ref and "f_est_z_L" in df.columns and "f_est_z_R" in df.columns:
+        figures["contact_force"] = plot_contact_forces(df, time, args.contact_level, ref)
+    else:
+        print("\n[Plotter] No contact force columns (f_est_z_*, f_gt_z_*), skipping contact force plot")
 
     if args.save:
         prefix = args.save if os.path.isabs(args.save) else os.path.join(REPO_ROOT, args.save)

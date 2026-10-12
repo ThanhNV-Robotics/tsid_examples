@@ -45,7 +45,7 @@ int main(int argc, char **argv) {
   const double dt = 0.001;
   const double Tswing = 1.0;
 
-  const double simulation_time = 15.0;
+  const double simulation_time = 10.0;
   const double T_stand = 3.0; // seconds, init standing time
 
   std::printf("====================================================\n");
@@ -166,8 +166,8 @@ int main(int argc, char **argv) {
   const pinocchio::FrameIndex rf_id = robot.model().getFrameId(foot_placement.rightFootFrame);
 
   // Contact estimation without a foot sensor: momentum-based disturbance
-  // observer -> foot contact wrenches (foot order: left, right). The touch
-  // sensors are only read to compare against the estimate.
+  // observer -> foot contact wrenches (foot order: left, right). Compared
+  // against the simulator's contact forces (Cheat_StateEstimator::getContactForces()).
   ContactFusion contact_estimator(robot.model(),
                                   {foot_placement.leftFootFrame, foot_placement.rightFootFrame}, dt, 15.0);
 
@@ -208,9 +208,9 @@ int main(int argc, char **argv) {
   datalog.addItem("rfoot_meas", std::vector<std::string>{"x", "y", "z"});
   datalog.addItem("lfoot_rpy", std::vector<std::string>{"roll", "pitch", "yaw"});
   datalog.addItem("rfoot_rpy", std::vector<std::string>{"roll", "pitch", "yaw"});
-  // Contact force: observer estimate (vertical force, world z) vs. touch sensor
+  // Contact force (vertical, world z): observer estimate vs. ground truth (MuJoCo contacts)
   datalog.addItem("f_est_z", std::vector<std::string>{"L", "R"});
-  datalog.addItem("f_touch", std::vector<std::string>{"L", "R"});
+  datalog.addItem("f_gt_z", std::vector<std::string>{"L", "R"});
   datalog.finishItemAdding();
 
   // Real-time plots
@@ -268,7 +268,8 @@ int main(int argc, char **argv) {
   // starts; every swing returns the foot to it, so yaw slip of the stance foot
   // cannot accumulate over the steps
   Matrix3d R_nominal_lf = Matrix3d::Identity(), R_nominal_rf = Matrix3d::Identity();
-  while (!sim.shouldClose() && !qp_failed) {
+
+  while (!sim.shouldClose() && !qp_failed && sim.time() <= simulation_time) {
     double simstart = sim.time();
 
     // Step physics at ~60 Hz visual frame rate
@@ -420,7 +421,8 @@ int main(int argc, char **argv) {
       }
       datalog.recItemData("f_est_z", Vector2d(contact_estimator.getFootWrench(0)(2),
                                               contact_estimator.getFootWrench(1)(2)));
-      datalog.recItemData("f_touch", Vector2d(robot_sensors.left_touch_sensor, robot_sensors.right_touch_sensor));
+      datalog.recItemData("f_gt_z", Vector2d(state_estimator.getContactForces()[0].z(),
+                                             state_estimator.getContactForces()[1].z()));
       datalog.finishLine();
       // 6.6 Apply interactive user perturbations and step physics
       sim.stepPhysics();
@@ -448,11 +450,11 @@ int main(int argc, char **argv) {
     phase_plot->addPoint("Phi-Rfeet", sim.time(), walk_planner.getPhase()[2]);
     phase_plot->render();
 
-    // Estimated vs. measured (touch sensor) normal force of each foot
+    // Estimated vs. ground-truth (MuJoCo contacts) vertical force of each foot
     force_plot->addPoint("L_est", sim.time(), contact_estimator.getFootWrench(0)(2));
-    force_plot->addPoint("L_touch", sim.time(), robot_sensors.left_touch_sensor);
+    force_plot->addPoint("L_gt", sim.time(), state_estimator.getContactForces()[0].z());
     force_plot->addPoint("R_est", sim.time(), contact_estimator.getFootWrench(1)(2));
-    force_plot->addPoint("R_touch", sim.time(), robot_sensors.right_touch_sensor);
+    force_plot->addPoint("R_gt", sim.time(), state_estimator.getContactForces()[1].z());
     force_plot->render();
 
     // Swing-foot plan: planned foot height vs. the measured foot heights, and
@@ -491,10 +493,7 @@ int main(int argc, char **argv) {
       sim.addLine(com_meas, com_ground, yellow, 2.0);
       sim.addSphere(com_ground, 0.012, yellow);
     }
-    sim.updateScene();
-
-
-    
+    sim.updateScene();    
   }
 
   // Flush and close log file
