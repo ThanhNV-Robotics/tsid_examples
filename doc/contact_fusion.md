@@ -225,6 +225,11 @@ robot the force estimate will be noisier and this weight should be retuned.
 
 ## 6. Use in the walk planner (§VI)
 
+> The walk planner side (gait cycle with double support, early / late
+> touchdown, CP replanning) is documented in
+> [event_based_control.md](event_based_control.md); this section covers how
+> the contact estimate enters it.
+
 `WalkPlanner::planWalking(..., contact_flags)` takes the contact state as an
 argument. `biped_walking.cpp` selects it with
 
