@@ -110,13 +110,30 @@ walk_planner:
     right_foot_frame: "right_ankle_pitch_link"
     vx: 0.15 # forward speed [m/s]; 0 = step in place
     ramp_time: 1.0 # time to ramp the speed command from 0 to vx [s]
+    t_swing: 0.8 # single-support (swing) duration [s]
+    double_support_time: 0.2 # [s] double support at the start of each step (doc/event_based_control.md, Stage 3b); 0 = instant switch
     dt: 0.001 # sampling time
     touchdown_phase_min: 0.7 # earliest step phase at which a touchdown ends the step
     touchdown_confirm_time: 0.025 # [s] swing foot contact must hold this long before the step ends (paper Sec. VI t_delay)
     # Late touchdown (paper Sec. VI): no contact at the end of the step -> keep the
     # support leg and lower the swing foot until it finds the ground
     late_confirm_time: 0.005 # [s] contact confirmation while late
-    late_touchdown_timeout: 0.005 # [s] longest wait; then the step ends anyway (contact added in the air)
+    late_touchdown_timeout: 0.0 # [s] 0 = no timeout: a late step waits for the touchdown event; > 0 = longest wait, then the step ends anyway (contact added in the air)
     late_descent_speed: 0.2 # [m/s] swing foot descent speed below the planned landing point
     late_descent_ramp_time: 0.05 # [s] the descent speed ramps up from 0 over this time (no velocity jump, no kick)
     late_max_depth: 0.02 # [m] deepest swing target below the planned landing height
+    # Receding-horizon ZMP (doc/event_based_control.md, Stage 1): the ZMP is
+    # recomputed every tick from the current capture point and the remaining
+    # step time, and held for the last zmp_hold_time of the step
+    zmp_hold_time: 0.03 # [s]
+    # Measured-CP feedback (Stage 2): blend of the robot's capture point into the
+    # planned one, for the ZMP every tick and for the plan reset at touchdown
+    # (0 = open loop, 1 = measured only)
+    cp_feedback_gain: 0.3
+    # CP-based foothold adaptation (Stage 3): the next foot is placed where the
+    # periodic gait resumes from the predicted end-of-step capture point; equals
+    # the nominal foothold while the ZMP is not at the sole limit
+    foothold_adaptation: true
+    foothold_max_width_change: 0.05 # [m] lateral range around the nominal step width
+    foothold_max_rate: 0.5 # [m/s] largest foothold change per second (smooth swing target)
+    foothold_freeze_phase: 0.8 # the foothold no longer changes after this step phase

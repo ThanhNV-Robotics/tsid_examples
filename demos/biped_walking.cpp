@@ -45,7 +45,6 @@ int main(int argc, char **argv) {
   const double hip_width = 0.334;
   const double init_base_height = 0.78;
   const double dt = 0.001;
-  const double Tswing = 1.0;
 
   const double simulation_time = 10.0;
   const double T_stand = 3.0; // seconds, init standing time
@@ -164,6 +163,9 @@ int main(int argc, char **argv) {
   const YAML::Node walk_cfg = wp_cfg ? wp_cfg["foot_placement"] : YAML::Node();
   const double vx_cmd = (walk_cfg && walk_cfg["vx"]) ? walk_cfg["vx"].as<double>() : 0.0;
   const double vx_ramp_time = (walk_cfg && walk_cfg["ramp_time"]) ? walk_cfg["ramp_time"].as<double>() : 1.0;
+  // Step (swing) duration [s]
+  const double Tswing = (walk_cfg && walk_cfg["t_swing"]) ? walk_cfg["t_swing"].as<double>() : 1.0;
+  std::printf("[Walking] step duration %.3f s\n", Tswing);
   std::printf("[Walking] vx command %.3f m/s (ramp %.1f s)\n", vx_cmd, vx_ramp_time);
 
   // Swing-foot planner. The step length follows the vx command (zero command
@@ -212,9 +214,12 @@ int main(int argc, char **argv) {
   datalog.addItem("swing_leg", 1);
   datalog.addItem("swing_phase", 1);
   datalog.addItem("late_touchdown", 1); // 1 while the walk planner waits for a late touchdown
+  datalog.addItem("double_support", 1); // 1 during the double support at the start of a step
   datalog.addItem("step_length", 1);
   datalog.addItem("plan_com", std::vector<std::string>{"x", "y"});
   datalog.addItem("plan_zmp", std::vector<std::string>{"x", "y"});
+  datalog.addItem("plan_cp", std::vector<std::string>{"x", "y"}); // planned capture point (world)
+  datalog.addItem("meas_cp", std::vector<std::string>{"x", "y"}); // measured capture point c + dc/w (world)
   datalog.addItem("swing_land", std::vector<std::string>{"x", "y", "z"});
   datalog.addItem("swing_ref", std::vector<std::string>{"x", "y", "z"});
   datalog.addItem("swing_ref_vel", std::vector<std::string>{"x", "y", "z"});
@@ -336,9 +341,12 @@ int main(int argc, char **argv) {
       // tick: the stance leg is scheduled in contact, the swing leg is not; both
       // feet in double support (standing / init shift) with subphase 0.5
       {
+        // Double support (start of each step): both feet scheduled in contact
         const LegState stance = walk_planner.getStanceLeg();
-        const double phi = (stance == LegState::DSt) ? 0.5 : walk_planner.getSwingPhase();
-        contact_estimator.fuseContactProbability({stance != LegState::RSt, stance != LegState::LSt}, {phi, phi});
+        const bool both = (stance == LegState::DSt) || walk_planner.inDoubleSupport();
+        const double phi = both ? 0.5 : walk_planner.getSwingPhase();
+        contact_estimator.fuseContactProbability({both || stance != LegState::RSt, both || stance != LegState::LSt},
+                                                 {phi, phi});
         // Accuracy against the simulator's contacts, while walking
         if (t >= T_stand) {
           ++n_fusion_ticks;
@@ -426,12 +434,18 @@ int main(int argc, char **argv) {
                         swing_frame.c_str());
           }
           was_late = walk_planner.isLate();
+          // Touchdown event: the landing foot gets its rigid contact back; the
+          // step starts with a double support (both feet in contact)
           if (walk_planner.stanceChanged()) {
-            if (!swing_frame.empty() && task_parser.isSwinging(swing_frame)) 
+            if (!swing_frame.empty() && task_parser.isSwinging(swing_frame))
             {
-              task_parser.endSwing(tsid, swing_frame, tsid.data()); // add rigid contact for the 
+              task_parser.endSwing(tsid, swing_frame, tsid.data()); // add rigid contact for the landing foot
               std::printf("[Swing] t=%.3f touchdown %s\n", t, swing_frame.c_str());
             }
+            swing_frame.clear();
+          }
+          // Liftoff event (end of the double support): the trailing foot lifts off
+          if (walk_planner.liftoffEvent()) {
             swing_frame = foot_placement.getSwingFrameName();
             swing_R = foot_placement.isLeftSwing() ? R_nominal_lf : R_nominal_rf;
             task_parser.startSwing(tsid, swing_frame);
@@ -489,9 +503,12 @@ int main(int argc, char **argv) {
                                        : foot_placement.isLeftSwing() ? 1.0 : -1.0);
       datalog.recItemData("swing_phase", foot_placement.phi);
       datalog.recItemData("late_touchdown", walk_planner.isLate() ? 1.0 : 0.0);
+      datalog.recItemData("double_support", walk_planner.inDoubleSupport() ? 1.0 : 0.0);
       datalog.recItemData("step_length", foot_placement.stepLength);
       datalog.recItemData("plan_com", Vector2d(walk_planner.getCoMrefW().head<2>()));
       datalog.recItemData("plan_zmp", Vector2d(walk_planner.getZMPrefW().head<2>()));
+      datalog.recItemData("plan_cp", Vector2d(walk_planner.getCapturedPointrefW().head<2>()));
+      datalog.recItemData("meas_cp", Vector2d(walk_planner.getMeasuredCPW().head<2>()));
       datalog.recItemData("swing_land", foot_placement.posDes_W);
       datalog.recItemData("swing_ref", foot_placement.getSwingDesPos());
       datalog.recItemData("swing_ref_vel", foot_placement.getSwingDesVel());
@@ -537,9 +554,9 @@ int main(int argc, char **argv) {
     // phase for both feet, 0.5 (mid-stance) in double support.
     {
       const LegState stance = walk_planner.getStanceLeg();
-      const bool s_L = (stance != LegState::RSt);
-      const bool s_R = (stance != LegState::LSt);
-      const double phi = (stance == LegState::DSt) ? 0.5 : walk_planner.getSwingPhase();
+      const bool both = (stance == LegState::DSt) || walk_planner.inDoubleSupport();
+      const bool s_L = both || (stance != LegState::RSt);
+      const bool s_R = both || (stance != LegState::LSt);
       phase_contact_prob_plot->addPoint("P_L", sim.time(), contact_estimator.getPhaseProbability(0));
       phase_contact_prob_plot->addPoint("P_R", sim.time(), contact_estimator.getPhaseProbability(1));
       phase_contact_prob_plot->addPoint("s_L", sim.time(), s_L ? 1.0 : 0.0);

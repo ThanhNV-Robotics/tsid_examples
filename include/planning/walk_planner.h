@@ -62,17 +62,30 @@ class WalkPlanner
         Vector3d getCoMaccRefW () const;
         Vector3d getZMPrefW () const;      // z = 0 (floor)
         Vector3d getCapturedPointrefW () const;
+        // Capture point of the robot, c + dc/w from the measured CoM (world frame, z = 0)
+        Vector3d getMeasuredCPW () const;
         Vector3d getNextFootW () const;    // swing ankle landing point, z = stance ankle height
 
         // ---- Gait state for the swing planner and the TSID contact switch ----
         // Stance leg of the current step: LSt = left stands / right swings,
         // RSt = right stands / left swings, DSt = not stepping yet (init shift)
         LegState getStanceLeg () const { return stance_leg_; }
-        // Phase of the current step in [0, 1] (0 while not stepping)
-        double getSwingPhase () const { return stance_leg_ == LegState::DSt ? 0.0 : std::min(phi_CoM, 1.0); }
-        // Step event, true only on the tick a new step starts: the previous swing
-        // foot has touched down (if there was one) and the other foot lifts off
+        // Phase of the single support (swing) of the current step in [0, 1]
+        // (0 while not stepping and during double support)
+        double getSwingPhase () const
+        { return (stance_leg_ == LegState::DSt || in_ds_) ? 0.0 : std::min(phi_CoM, 1.0); }
+        // Touchdown event, true only on the tick a new step starts: the swing
+        // foot has touched down and becomes the stance foot. The step starts
+        // with a double-support phase (both feet loaded), see inDoubleSupport()
         bool stanceChanged () const { return stance_changed_; }
+        // Double support at the start of a step (doc/event_based_control.md,
+        // Stage 3b): the CP is moved onto the new stance foot while the
+        // trailing foot is still loaded
+        bool inDoubleSupport () const { return in_ds_; }
+        // Liftoff event, true only on the tick the double support ends: the
+        // trailing foot lifts off and its swing starts. With no double support
+        // (double_support_time 0) it coincides with the touchdown event
+        bool liftoffEvent () const { return liftoff_event_; }
         // Late touchdown (Bledt et al. ICRA 2018, Sec. VI, "Late" state): the step
         // reached phi = 1 but the swing foot is not in contact yet. The support
         // leg is kept and the swing foot keeps descending (FootPlacement) until
@@ -91,6 +104,17 @@ class WalkPlanner
         // Planning frame -> world: points (origin + rotation) and directions (rotation only)
         Eigen::Vector2d pointToWorld (double x, double y) const;
         Eigen::Vector2d dirToWorld (double x, double y) const;
+        // World -> planning frame (inverse of pointToWorld / dirToWorld)
+        Eigen::Vector2d worldToPoint (const Eigen::Vector2d &p_W) const;
+        Eigen::Vector2d worldToDir (const Eigen::Vector2d &v_W) const;
+        // ZMP limits (planning frame): the stance sole, or during double support
+        // the band between the stance and trailing ankles (both soles)
+        Eigen::Vector2d clampToSole (const Eigen::Vector2d &p) const;
+        Eigen::Vector2d clampToDoubleSupport (const Eigen::Vector2d &p) const;
+
+        // Measured CoM and capture point of the robot in the planning frame
+        // (doc/event_based_control.md, Stage 2), stored in xc_meas_, ... cxi_meas_
+        void measureCP (const tsid::robots::RobotWrapper &robot_wrapper, const pinocchio::Data &data);
 
         // Start a single-support step on `stance` (LSt / RSt): re-anchor the
         // planning frame to that ankle, capture xi0, reset the phase
@@ -128,6 +152,26 @@ class WalkPlanner
         double late_timeout_{0.0};        // s, <= 0: no timeout, wait for the touchdown
         bool late_{false};                // in the late state, see isLate()
         double late_time_{0.0};           // s spent in the late state
+        // Receding-horizon ZMP: below this remaining step time the ZMP is held
+        // (the boundary-value solution is ill-conditioned as the time goes to 0)
+        double zmp_hold_time_{0.03};      // s
+        // Measured-CP feedback (Stage 2): the ZMP uses
+        // cxi_plan + cp_feedback_gain_ (cxi_meas - cxi_plan), and every touchdown
+        // resets the planned CoM and CP by the same blend (0 = open loop)
+        double cp_feedback_gain_{0.3};
+        // Double-support phase at the start of each step (Stage 3b)
+        double t_ds_{0.0};               // s, double_support_time (0 = instant switch)
+        bool in_ds_{false};              // in the double support of the current step
+        double ds_time_{0.0};            // s spent in the double support
+        bool liftoff_event_{false};      // liftoff event of this tick, see liftoffEvent()
+        Eigen::Vector2d trail_foot_{Eigen::Vector2d::Zero()}; // trailing ankle, planning frame
+        Eigen::Vector2d com_meas_{Eigen::Vector2d::Zero()}; // measured CoM, planning frame
+        Eigen::Vector2d cxi_meas_{Eigen::Vector2d::Zero()}; // measured CP, planning frame
+        // CP-based foothold adaptation (Stage 3)
+        bool foothold_adaptation_{true};
+        double foothold_max_width_change_{0.05}; // m, lateral range around the nominal step width
+        double foothold_max_rate_{0.5};          // m/s, largest foothold change per second
+        double foothold_freeze_phase_{0.8};      // the foothold no longer changes after this phase
 
         // ZMP limits in the stance-ankle frame: sole box of the ankle link's URDF
         // collision (x in [-0.05, 0.13], |y| <= 0.03) shrunk by a 1 cm margin

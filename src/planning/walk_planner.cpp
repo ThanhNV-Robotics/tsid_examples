@@ -49,6 +49,13 @@ WalkPlanner::WalkPlanner(const YAML::Node &cfg, const double zIn)
     this->td_confirm_time_ = readOr(cfg, "touchdown_confirm_time", this->td_confirm_time_);
     this->late_confirm_time_ = readOr(cfg, "late_confirm_time", this->late_confirm_time_);
     this->late_timeout_ = readOr(cfg, "late_touchdown_timeout", this->late_timeout_);
+    this->zmp_hold_time_ = readOr(cfg, "zmp_hold_time", this->zmp_hold_time_);
+    this->cp_feedback_gain_ = readOr(cfg, "cp_feedback_gain", this->cp_feedback_gain_);
+    this->t_ds_ = readOr(cfg, "double_support_time", this->t_ds_);
+    this->foothold_adaptation_ = readOr(cfg, "foothold_adaptation", this->foothold_adaptation_);
+    this->foothold_max_width_change_ = readOr(cfg, "foothold_max_width_change", this->foothold_max_width_change_);
+    this->foothold_max_rate_ = readOr(cfg, "foothold_max_rate", this->foothold_max_rate_);
+    this->foothold_freeze_phase_ = readOr(cfg, "foothold_freeze_phase", this->foothold_freeze_phase_);
 
     this->zc_ = zIn;
     this->w = std::sqrt(this->g/this->zc_);
@@ -137,6 +144,7 @@ void WalkPlanner::planWalking (JoyStickInterpreter &joystick, Cheat_StateEstimat
 {
     // Planning CoM and swing feet using local coordinate to avoid driting
     this->stance_changed_ = false; // set again by enterStance() if a new step starts this tick
+    this->liftoff_event_ = false;  // set again when the double support ends this tick
     const double e = 2.718281828459;
     if (!isInit_) // if not init yet
     {
@@ -170,7 +178,9 @@ void WalkPlanner::planWalking (JoyStickInterpreter &joystick, Cheat_StateEstimat
     t_swing = Tswing;
     
     const double dPhi = dt_ / Tswing; // phase goes 0 -> 1 over one Tswing
-    this->phi_CoM += dPhi; // ramping CoM phase
+    // During the double support of a step the single-support phase waits
+    if (in_ds_) this->ds_time_ += dt_;
+    else this->phi_CoM += dPhi; // ramping CoM phase
     
 
     this->step_length = std::clamp(vx * t_swing, -max_step_length, max_step_length);
@@ -220,6 +230,13 @@ void WalkPlanner::planWalking (JoyStickInterpreter &joystick, Cheat_StateEstimat
             enterStance(LegState::LSt, robot_wrapper, data); // left leg stand first (first step)
         } 
         
+        else if (in_ds_) // double support: both feet loaded, no swing foot
+        {
+            if (ds_time_ >= t_ds_) {
+                in_ds_ = false;          // the trailing foot lifts off, single support starts
+                liftoff_event_ = true;
+            }
+        }
         else // during walking        
         {
             // which leg is in stand: true = left stand/right swing, false = right stand/left swing
@@ -291,23 +308,85 @@ void WalkPlanner::planWalking (JoyStickInterpreter &joystick, Cheat_StateEstimat
         // then rotated into the stance-foot axes by -heading_error, so the swing
         // foot lands along ref_theta even if the stance foot is yawed
         const Eigen::Rotation2Dd R_err(-heading_error);
-        this->next_foot_pos_ = R_err * Eigen::Vector2d(step_length, side * wd_hip);
+        const Eigen::Vector2d foot_nominal = R_err * Eigen::Vector2d(step_length, side * wd_hip);
+        // Each step starts from the nominal foothold; Stage 3 adapts it below
+        if (stance_changed_ || !foothold_adaptation_) this->next_foot_pos_ = foot_nominal;
 
-        // End-of-step capture point for a constant ZMP at the stance ankle: the
-        // periodic LIPM solution, so the ZMP stays at the ankle in steady walking
-        //   sagittal: xi_d = s * b / (b - 1)      lateral: xi_d = y_f * b / (b + 1)
-        const double b = std::exp(this->w * this->t_swing);
-        const Eigen::Vector2d cxi_d = R_err * Eigen::Vector2d(step_length * b / (b - 1.0),
-                                                              side * wd_hip * b / (b + 1.0));
+        // Nominal CP targets of the periodic gait (Stage 3b): ZMP constant at the
+        // stance ankle during single support (SS) and at the midpoint between the
+        // feet during double support (DS). With E_ss = e^(w T_ss), E_ds = e^(w T_ds),
+        // the CP at the start of SS, relative to the stance foot, is
+        //   xi0 = ( s (1 + E_ds) / (2 (E_ds E_ss - 1)),  side w_h (1 + E_ds) / (2 (1 + E_ds E_ss)) )
+        // and at the end of SS (touchdown) xi_ss_end = E_ss xi0. For T_ds = 0 they
+        // are the single-support targets s / (b - 1), y_f / (b + 1) and b xi0.
+        const double b = std::exp(this->w * this->t_swing);       // E_ss
+        const double e_ds = std::exp(this->w * this->t_ds_);      // E_ds
+        const Eigen::Vector2d cxi_start = R_err * Eigen::Vector2d(
+            step_length * (1.0 + e_ds) / (2.0 * (e_ds * b - 1.0)),
+            side * wd_hip * (1.0 + e_ds) / (2.0 * (1.0 + e_ds * b)));
+        const Eigen::Vector2d cxi_ss_end = b * cxi_start;
+        // Active target: start of SS while in DS, touchdown CP while in SS
+        const Eigen::Vector2d cxi_d = in_ds_ ? cxi_start : cxi_ss_end;
         this->cxi_xd_ = cxi_d.x();
         this->cxi_yd_ = cxi_d.y();
 
         // Compute ZMP and CoM reference w.r.t the ankle frame
-        // Constant ZMP over the step that takes the CP from cxi0 (captured on
-        // entering stance) to cxi_d at the end of the step, then clamped to the
-        // sole: the CP may then miss cxi_d a bit, the next foothold absorbs it
-        zmp_x_d_ = std::clamp((cxi_xd_ - b * cxi_x0_) / (1.0 - b), sole_x_min_, sole_x_max_);
-        zmp_y_d_ = std::clamp((cxi_yd_ - b * cxi_y0_) / (1.0 - b), -sole_y_half_, sole_y_half_);
+        // Receding-horizon ZMP (doc/event_based_control.md, Stage 1): every tick,
+        // the constant ZMP that takes the CP from its current value to cxi_d in
+        // the remaining step time, clamped to the sole. Undisturbed, this equals
+        // the once-per-step solution; a CP error (clamping, a step that started
+        // early or late) is spread over the rest of the step instead of being
+        // frozen at the step start. The solution is ill-conditioned when the
+        // remaining time goes to 0, so the ZMP is held for the last
+        // zmp_hold_time_ (and in the late state, phi > 1).
+        //
+        // Stage 2: the CP in that formula blends the measured CP of the robot
+        // into the planned one, so the ZMP reacts when the robot lags the plan
+        // (DCM feedback). The planned CP and CoM keep being integrated from the
+        // commanded ZMP and give TSID a smooth CoM reference.
+        measureCP(robot_wrapper, data);
+        const double cxi_fb_x = cxi_x_ + cp_feedback_gain_ * (cxi_meas_.x() - cxi_x_);
+        const double cxi_fb_y = cxi_y_ + cp_feedback_gain_ * (cxi_meas_.y() - cxi_y_);
+        // Remaining time of the current phase (DS: to liftoff, SS: to touchdown)
+        const double t_rem = in_ds_ ? std::max(t_ds_ - ds_time_, 0.0)
+                                    : this->t_swing * (1.0 - std::min(phi_CoM, 1.0));
+        if (t_rem > zmp_hold_time_) {
+            const double b_rem = std::exp(this->w * t_rem);
+            const Eigen::Vector2d p((cxi_xd_ - b_rem * cxi_fb_x) / (1.0 - b_rem),
+                                    (cxi_yd_ - b_rem * cxi_fb_y) / (1.0 - b_rem));
+            const Eigen::Vector2d p_c = in_ds_ ? clampToDoubleSupport(p) : clampToSole(p);
+            zmp_x_d_ = p_c.x();
+            zmp_y_d_ = p_c.y();
+        }
+
+        // Stage 3: CP-based foothold adaptation. Predicted CP at the end of the
+        // step with the commanded (clamped) ZMP over the remaining time, and the
+        // foothold from which the next step starts like the periodic gait:
+        //   cxi_end = p + e^(w t_rem) (cxi - p),  p_next = cxi_end - cxi0_next
+        //   cxi0_next = (s / (b - 1), -side w_h / (b + 1)) relative to the next foot
+        // When the ZMP is not clamped, cxi_end = cxi_d and p_next is the nominal
+        // foothold; when it is clamped, the foothold takes over the part of the
+        // correction the ZMP cannot do. e^(w t_rem) is large early in the step,
+        // so the foothold is clamped, rate limited and frozen late in the swing.
+        // (Stage 3b: the touchdown CP relative to the next foot should be the
+        // nominal one, cxi_ss_end - foot_nominal, from which the next double
+        // support starts; for T_ds = 0 this is the formula above.)
+        if (foothold_adaptation_ && !in_ds_ && std::min(phi_CoM, 1.0) <= foothold_freeze_phase_) {
+            const Eigen::Vector2d zmp(zmp_x_d_, zmp_y_d_);
+            const Eigen::Vector2d cxi_fb(cxi_fb_x, cxi_fb_y);
+            const Eigen::Vector2d cxi_end = zmp + std::exp(this->w * t_rem) * (cxi_fb - zmp);
+            const Eigen::Vector2d cxi_td_rel_next = cxi_ss_end - foot_nominal;
+            // Limits in the walking-heading axes: step length, lateral range
+            // around the nominal width (keeps the feet apart, no crossing)
+            Eigen::Vector2d q = R_err.inverse() * (cxi_end - cxi_td_rel_next);
+            q.x() = std::clamp(q.x(), -max_step_length, max_step_length);
+            q.y() = std::clamp(q.y(), side * wd_hip - foothold_max_width_change_,
+                               side * wd_hip + foothold_max_width_change_);
+            // Rate limit, so the swing target moves smoothly
+            const Eigen::Vector2d step = R_err * q - next_foot_pos_;
+            const double max_step = foothold_max_rate_ * dt_;
+            next_foot_pos_ += (step.norm() > max_step) ? Eigen::Vector2d(step * (max_step / step.norm())) : step;
+        }
 
         // compute Capture Point
         this->computeCP(zmp_x_d_, zmp_y_d_);
@@ -331,6 +410,27 @@ void WalkPlanner::enterStance(LegState stance, const tsid::robots::RobotWrapper 
 
     // Reset the CoM and Capture point to the stance ankle frame, frozen for the step
     reanchor(oMst.translation().head<2>(), st_yaw);
+
+    // Stage 2: at every touchdown pull the planned CoM and CP toward the
+    // measured ones, so the plan cannot drift away from the robot over many
+    // steps (the reference stays continuous for cp_feedback_gain_ < 1)
+    measureCP(robot_wrapper, data);
+    this->xc_ += cp_feedback_gain_ * (com_meas_.x() - this->xc_);
+    this->yc_ += cp_feedback_gain_ * (com_meas_.y() - this->yc_);
+    this->cxi_x_ += cp_feedback_gain_ * (cxi_meas_.x() - this->cxi_x_);
+    this->cxi_y_ += cp_feedback_gain_ * (cxi_meas_.y() - this->cxi_y_);
+
+    // Trailing (previous stance) foot, in the new planning frame: the other
+    // edge of the double-support region
+    const std::string &trail_frame = (stance == LegState::LSt) ? right_foot_frame : left_foot_frame;
+    this->trail_foot_ = worldToPoint(
+        robot_wrapper.framePosition(data, robot_wrapper.model().getFrameId(trail_frame)).translation().head<2>());
+    // The step starts with the double support (Stage 3b); without it the
+    // trailing foot lifts off on this tick
+    this->in_ds_ = (t_ds_ > 0.0);
+    this->ds_time_ = 0.0;
+    if (!in_ds_) this->liftoff_event_ = true;
+
     this->stance_leg_ = stance;
     this->cxi_x0_ = this->cxi_x_; // start of the boundary-value phase
     this->cxi_y0_ = this->cxi_y_;
@@ -374,6 +474,53 @@ Eigen::Vector2d WalkPlanner::pointToWorld(double x, double y) const
 Eigen::Vector2d WalkPlanner::dirToWorld(double x, double y) const
 {
     return Eigen::Rotation2Dd(frame_yaw_) * Eigen::Vector2d(x, y);
+}
+
+Eigen::Vector2d WalkPlanner::worldToPoint(const Eigen::Vector2d &p_W) const
+{
+    return Eigen::Rotation2Dd(-frame_yaw_) * (p_W - frame_origin_W_);
+}
+
+Eigen::Vector2d WalkPlanner::worldToDir(const Eigen::Vector2d &v_W) const
+{
+    return Eigen::Rotation2Dd(-frame_yaw_) * v_W;
+}
+
+Eigen::Vector2d WalkPlanner::clampToSole(const Eigen::Vector2d &p) const
+{
+    return Eigen::Vector2d(std::clamp(p.x(), sole_x_min_, sole_x_max_),
+                           std::clamp(p.y(), -sole_y_half_, sole_y_half_));
+}
+
+Eigen::Vector2d WalkPlanner::clampToDoubleSupport(const Eigen::Vector2d &p) const
+{
+    // Band from the stance ankle (planning-frame origin) to the trailing ankle:
+    // along the band, both ankles plus the sole half width; across it, the
+    // sole's toe/heel extent (the band runs mostly sideways, across = forward)
+    const Eigen::Vector2d ab = trail_foot_;
+    const double len = ab.norm();
+    if (len < 1e-6) return clampToSole(p);
+    const Eigen::Vector2d u = ab / len;
+    Eigen::Vector2d n(-u.y(), u.x());
+    if (n.x() < 0.0) n = -n; // across axis pointing forward
+    const double along = std::clamp(p.dot(u), -sole_y_half_, len + sole_y_half_);
+    const double across = std::clamp(p.dot(n), sole_x_min_, sole_x_max_);
+    return along * u + across * n;
+}
+
+void WalkPlanner::measureCP(const tsid::robots::RobotWrapper &robot_wrapper, const pinocchio::Data &data)
+{
+    // CoM position and velocity of the robot (computeAllTerms of the last TSID
+    // problem), in the planning frame; CP of the LIPM: c + dc / w
+    com_meas_ = worldToPoint(robot_wrapper.com(data).head<2>());
+    const Eigen::Vector2d vcom = worldToDir(robot_wrapper.com_vel(data).head<2>());
+    cxi_meas_ = com_meas_ + vcom / this->w;
+}
+
+Vector3d WalkPlanner::getMeasuredCPW() const
+{
+    const Eigen::Vector2d p = pointToWorld(cxi_meas_.x(), cxi_meas_.y());
+    return Vector3d(p.x(), p.y(), 0.0);
 }
 
 Vector3d WalkPlanner::getCoMrefW() const
