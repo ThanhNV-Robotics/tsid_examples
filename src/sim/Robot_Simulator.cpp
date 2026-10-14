@@ -1,5 +1,17 @@
 #include "sim/Robot_Simulator.h"
 
+#include <cstdlib>
+
+namespace {
+// TSID_HEADLESS=1: every window (simulator and real-time plots) is created
+// hidden. Rendering still runs off-screen, so the demos behave the same; used
+// to run simulations without windows popping up (batch tests, analysis)
+bool headless() {
+    const char* v = std::getenv("TSID_HEADLESS");
+    return v && v[0] != '\0' && v[0] != '0';
+}
+}
+
 // ============================================================================
 // 1. UIctr Implementation
 // ============================================================================
@@ -40,12 +52,14 @@ void UIctr::iniGLFW() {
 }
 
 void UIctr::createWindow(const char* windowTitle, bool saveVideo) {
+    if (headless()) glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     window = glfwCreateWindow(width, height, windowTitle, NULL, NULL);
+    glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
     if (!window) {
         mju_error("Could not create GLFW window");
     }
     glfwMakeContextCurrent(window);
-    glfwSwapInterval(1);
+    glfwSwapInterval(headless() ? 0 : 1); // hidden window: no vsync wait
 
     mjv_defaultFreeCamera(mj_model, &cam);
 
@@ -690,7 +704,7 @@ RealtimePlot::RealtimePlot(mjModel* model, int width, int height, const char* ti
         return;
     }
 
-    glfwShowWindow(window_);
+    if (!headless()) glfwShowWindow(window_);
     glfwFocusWindow(window_);
     glfwMakeContextCurrent(window_);
     glfwSwapInterval(0);

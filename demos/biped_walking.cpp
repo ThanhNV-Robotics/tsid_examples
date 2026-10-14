@@ -1,5 +1,7 @@
 // Standard library
 #include <cstdio>
+#include <limits>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -209,6 +211,7 @@ int main(int argc, char **argv) {
   // swing_leg: 1 = left foot swings, -1 = right foot swings, 0 = double support
   datalog.addItem("swing_leg", 1);
   datalog.addItem("swing_phase", 1);
+  datalog.addItem("late_touchdown", 1); // 1 while the walk planner waits for a late touchdown
   datalog.addItem("step_length", 1);
   datalog.addItem("plan_com", std::vector<std::string>{"x", "y"});
   datalog.addItem("plan_zmp", std::vector<std::string>{"x", "y"});
@@ -224,6 +227,7 @@ int main(int argc, char **argv) {
   datalog.addItem("f_gt_z", std::vector<std::string>{"L", "R"});
   // Sole height (world z of the lowest sole corner), input of the height contact model
   datalog.addItem("sole_z", std::vector<std::string>{"L", "R"});
+  datalog.addItem("ground_z", std::vector<std::string>{"L", "R"}); // adaptive ground height under each foot
   // Contact fusion: per-model probabilities, fused probability, estimated and true contact
   datalog.addItem("p_phase", std::vector<std::string>{"L", "R"});
   datalog.addItem("p_height", std::vector<std::string>{"L", "R"});
@@ -301,6 +305,7 @@ int main(int argc, char **argv) {
   bool startWalking = false;
   bool qp_failed = false;
   std::string swing_frame;          // frame of the foot currently in the air, empty in double support
+  bool was_late = false;            // walk planner in the late-touchdown state on the previous tick
   Matrix3d swing_R = Matrix3d::Identity(); // swing foot orientation target during the swing
   // Nominal foot orientations (flat, standing yaw) captured when walking
   // starts; every swing returns the foot to it, so yaw slip of the stance foot
@@ -308,7 +313,10 @@ int main(int argc, char **argv) {
   Matrix3d R_nominal_lf = Matrix3d::Identity(), R_nominal_rf = Matrix3d::Identity();
 
   // while (!sim.shouldClose() && !qp_failed && sim.time() <= simulation_time) 
-  while (!sim.shouldClose() && !qp_failed) 
+  // TSID_SIM_TIME=<seconds>: stop at that simulated time (batch / headless runs)
+  const char *sim_time_env = std::getenv("TSID_SIM_TIME");
+  const double max_sim_time = sim_time_env ? std::atof(sim_time_env) : std::numeric_limits<double>::infinity();
+  while (!sim.shouldClose() && !qp_failed && sim.time() <= max_sim_time) 
   {
     double simstart = sim.time();
 
@@ -381,11 +389,19 @@ int main(int argc, char **argv) {
       // swinging CoM task
       // ------------------------------------------------------------------------
       if (startWalking)
-      {
-        const std::vector<bool> contact_flags =
-            use_estimated_contact
-                ? std::vector<bool>{contact_estimator.getContactState(0), contact_estimator.getContactState(1)}
-                : state.contact_flags;
+      { 
+        std::vector<bool> contact_flags;
+        if (use_estimated_contact)
+        {
+          // get contact flags/event from contact fusion model
+          contact_flags = std::vector<bool>{contact_estimator.getContactState(0), contact_estimator.getContactState(1)}; 
+        }
+        else 
+        {
+          // get contact flags event from mujoco (cheat estimator)
+          contact_flags = state.contact_flags; 
+        }
+        
         walk_planner.planWalking(joystick, state_estimator, robot, tsid.data(), Tswing, contact_flags);
         // CoM reference (world frame) with the planned velocity and acceleration
         // as feedforward (zero derivatives would make the Kd term brake the motion)
@@ -403,6 +419,13 @@ int main(int argc, char **argv) {
           // detects the touchdown (swing foot back in contact late enough in
           // the step, or the step timing out if it never lifted), so the
           // landing foot gets its contact back and the other foot lifts off
+          // Late touchdown: the step is over but the swing foot has not found the
+          // ground; the planner keeps the support leg while the foot descends
+          if (walk_planner.isLate() && !was_late) {
+            std::printf("[Swing] t=%.3f late touchdown: %s not in contact at the end of the step\n", t,
+                        swing_frame.c_str());
+          }
+          was_late = walk_planner.isLate();
           if (walk_planner.stanceChanged()) {
             if (!swing_frame.empty() && task_parser.isSwinging(swing_frame)) 
             {
@@ -465,6 +488,7 @@ int main(int argc, char **argv) {
       datalog.recItemData("swing_leg", !foot_placement.isSwinging() ? 0.0
                                        : foot_placement.isLeftSwing() ? 1.0 : -1.0);
       datalog.recItemData("swing_phase", foot_placement.phi);
+      datalog.recItemData("late_touchdown", walk_planner.isLate() ? 1.0 : 0.0);
       datalog.recItemData("step_length", foot_placement.stepLength);
       datalog.recItemData("plan_com", Vector2d(walk_planner.getCoMrefW().head<2>()));
       datalog.recItemData("plan_zmp", Vector2d(walk_planner.getZMPrefW().head<2>()));
@@ -484,6 +508,7 @@ int main(int argc, char **argv) {
       datalog.recItemData("f_gt_z", Vector2d(state_estimator.getContactForces()[0].z(),
                                              state_estimator.getContactForces()[1].z()));
       datalog.recItemData("sole_z", Vector2d(contact_estimator.getFootHeight(0), contact_estimator.getFootHeight(1)));
+      datalog.recItemData("ground_z", Vector2d(contact_estimator.getGroundHeight(0), contact_estimator.getGroundHeight(1)));
       datalog.recItemData("p_phase", Vector2d(contact_estimator.getPhaseProbability(0), contact_estimator.getPhaseProbability(1)));
       datalog.recItemData("p_height", Vector2d(contact_estimator.getHeightProbability(0), contact_estimator.getHeightProbability(1)));
       datalog.recItemData("p_force", Vector2d(contact_estimator.getForceProbability(0), contact_estimator.getForceProbability(1)));
@@ -525,6 +550,9 @@ int main(int argc, char **argv) {
     // Sole height used by the height contact model: world z of the lowest sole corner
     foot_height_plot->addPoint("z_L", sim.time(), contact_estimator.getFootHeight(0));
     foot_height_plot->addPoint("z_R", sim.time(), contact_estimator.getFootHeight(1));
+    // Adaptive ground height estimated under each foot
+    foot_height_plot->addPoint("ground_L", sim.time(), contact_estimator.getGroundHeight(0));
+    foot_height_plot->addPoint("ground_R", sim.time(), contact_estimator.getGroundHeight(1));
     foot_height_plot->render();
 
     // Estimated vs. ground-truth (MuJoCo contacts) vertical force of each foot

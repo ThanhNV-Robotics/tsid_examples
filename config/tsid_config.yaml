@@ -113,3 +113,10 @@ walk_planner:
     dt: 0.001 # sampling time
     touchdown_phase_min: 0.7 # earliest step phase at which a touchdown ends the step
     touchdown_confirm_time: 0.025 # [s] swing foot contact must hold this long before the step ends (paper Sec. VI t_delay)
+    # Late touchdown (paper Sec. VI): no contact at the end of the step -> keep the
+    # support leg and lower the swing foot until it finds the ground
+    late_confirm_time: 0.005 # [s] contact confirmation while late
+    late_touchdown_timeout: 0.005 # [s] longest wait; then the step ends anyway (contact added in the air)
+    late_descent_speed: 0.2 # [m/s] swing foot descent speed below the planned landing point
+    late_descent_ramp_time: 0.05 # [s] the descent speed ramps up from 0 over this time (no velocity jump, no kick)
+    late_max_depth: 0.02 # [m] deepest swing target below the planned landing height

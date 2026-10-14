@@ -11,7 +11,7 @@
 // Discrete-time generalized-momentum disturbance observer (Bledt et al.,
 // "Contact Model Fusion for Event-Based Locomotion in Unstructured Terrains",
 // ICRA 2018, Sec. III) and the per-foot contact wrench estimated from it.
-// See doc/contact_fusion_plan.md.
+// See doc/contact_fusion.md (implementation) and doc/contact_fusion_plan.md (design).
 class ContactFusion
 {
     public:
@@ -36,7 +36,8 @@ class ContactFusion
 
         double calculate_phase_contact_probability(double phi, bool scheduled_contact);
         double calculate_force_contact_probability(double fz);
-        // Height-based contact probability (paper eq. 20) for sole height pz [m]
+        // Height-based contact probability (paper eq. 20) for the sole height pz [m]
+        // above the estimated ground (see getGroundHeight)
         double calculate_height_contact_probability(double pz);
 
         // Sole corners of foot i in its foot frame (3 x k), e.g. the TSID contact
@@ -47,6 +48,12 @@ class ContactFusion
         // Updated by computeDisturbanceTorque(). Uses the base height of q, so on
         // a real robot it inherits the base-height estimate's drift.
         double getFootHeight (size_t i) const { return foot_height_[i]; }
+        // Estimated ground height under foot i [m] (adaptive ground, paper
+        // Sec. IV-B.1): a foot in contact stands on the ground, so its own sole
+        // height is the ground; a swinging foot uses the mean sole height of the
+        // feet in contact (terrain assumed locally flat). Updated by
+        // fuseContactProbability() from the previous tick's contact state.
+        double getGroundHeight (size_t i) const { return ground_height_[i]; }
 
         // One Kalman filter step of the contact fusion (paper Sec. IV), after
         // computeDisturbanceTorque() of the same tick:
@@ -73,16 +80,20 @@ class ContactFusion
         const double sigma_phase_c_ = 0.1; // standard deviation sigma of the phase-based contact probability (variance sigma^2 = 0.01; paper Table I: sigma^2 = 0.05)
         const double muy_fc_ = 20; // N: expected (threadsold) contact force for contact dectection
         const double sigma_fc_ = 10; // N: standard deviation of the force-base contact probabbility
-        // Height model: muy_zg_ = sole height at which contact is 50/50. Slightly
-        // above the floor (z = 0), so a flat foot on the floor gives P ~ 0.98
-        // (with muy_zg_ = 0 it would give exactly 0.5). Later: adapt it to the
-        // sole height of the last touchdown for uneven terrain (paper Sec. IV-B.1).
+        // Height model: muy_zg_ = sole height ABOVE THE ESTIMATED GROUND at which
+        // contact is 50/50. A margin above the ground, so a flat foot on it gives
+        // P ~ 0.98 (with muy_zg_ = 0 it would give exactly 0.5).
         const double muy_zg_ = 0.01;    // m
         const double sigma_zg_ = 0.005; // m: standard deviation, ~terrain roughness
         // Kalman filter covariances, tuned values of the paper (Sec. V-A)
         static constexpr double kQPhase_ = 0.998;  // Sigma_w: trust in the phase-based prior
         static constexpr double kRHeight_ = 0.841; // Sigma_v1: foot-height measurement
-        static constexpr double kRForce_ = 0.930;  // Sigma_v2: foot-force measurement
+        // Sigma_v2: foot-force measurement. Paper value 0.930; lowered to 0.5 (force
+        // weight 0.33 -> 0.48) because the observer force is accurate in
+        // simulation: offline replay of a walk onto a 1.5 cm step gave 98.4-98.6 %
+        // accuracy and liftoff within +-5 ms (with the adaptive ground). Retune on
+        // the real robot.
+        static constexpr double kRForce_ = 0.5;
         // Contact filter for n_feet feet with the matrices above
         static KalmanFilter makeContactFilter (int n_feet);
         // Hysteresis of the contact decision (eq. 26): contact when P rises above
@@ -111,6 +122,8 @@ class ContactFusion
         std::vector<Vector6d> foot_wrench_;
         std::vector<Eigen::Matrix3Xd> sole_corners_; // per foot, in the foot frame
         std::vector<double> foot_height_;            // per foot, world z of the lowest sole corner
+        std::vector<double> ground_height_;          // per foot, estimated ground height under it
+        std::vector<double> prev_foot_height_;       // foot_height_ of the previous fusion step
         Jacobian6 J_; // foot frame Jacobian buffer (6 x nv)
         // Damping of the per-foot wrench solve (units of the Jacobian, m / rad):
         // singular values of S_i J_i^T well above it are kept, those below are
@@ -119,5 +132,6 @@ class ContactFusion
         double f_z_max_ = 1000.0; // N, clamp of the vertical foot force, 3 m g (set in the constructor)
 
         bool initialized_ = false;
+        bool ground_initialized_ = false; // first fusion step seeds prev_foot_height_
 
 };

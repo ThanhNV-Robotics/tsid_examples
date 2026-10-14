@@ -73,6 +73,13 @@ class WalkPlanner
         // Step event, true only on the tick a new step starts: the previous swing
         // foot has touched down (if there was one) and the other foot lifts off
         bool stanceChanged () const { return stance_changed_; }
+        // Late touchdown (Bledt et al. ICRA 2018, Sec. VI, "Late" state): the step
+        // reached phi = 1 but the swing foot is not in contact yet. The support
+        // leg is kept and the swing foot keeps descending (FootPlacement) until
+        // contact (or late_timeout_ if it is > 0)
+        bool isLate () const { return late_; }
+        // Time spent in the late state of the current step [s]
+        double getLateTime () const { return late_time_; }
 
     private:
         WalkPlanner (const YAML::Node &cfg, const double zIn);
@@ -114,6 +121,13 @@ class WalkPlanner
         // or a fleeting contact does not switch the support leg
         double td_confirm_time_{0.025};   // s
         double swing_contact_time_{0.0};  // how long the swing foot has been in contact
+        // Late touchdown: contact confirmation while late (shorter, the foot is
+        // overdue), and the longest wait before the step is ended anyway (the CP
+        // diverges while the ZMP stays on the old stance foot)
+        double late_confirm_time_{0.01};  // s
+        double late_timeout_{0.0};        // s, <= 0: no timeout, wait for the touchdown
+        bool late_{false};                // in the late state, see isLate()
+        double late_time_{0.0};           // s spent in the late state
 
         // ZMP limits in the stance-ankle frame: sole box of the ankle link's URDF
         // collision (x in [-0.05, 0.13], |y| <= 0.03) shrunk by a 1 cm margin

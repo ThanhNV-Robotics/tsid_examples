@@ -54,6 +54,8 @@ ContactFusion::ContactFusion(const pinocchio::Model &model, const std::vector<st
         this->foot_wrench_.push_back(Vector6d::Zero());
         this->sole_corners_.push_back(Eigen::Matrix3Xd::Zero(3, 1)); // foot frame origin until setSoleCorners()
         this->foot_height_.push_back(0.0);
+        this->ground_height_.push_back(0.0);
+        this->prev_foot_height_.push_back(0.0);
     }
 
     // The robot starts standing on all feet: initial contact probability 1
@@ -133,7 +135,8 @@ double ContactFusion::calculate_force_contact_probability(double fz)
 }
 
 // Eq. 20: P(c | pz) = 1/2 [1 + erf((muy_zg - pz) / (sigma_zg sqrt(2)))],
-// high when the sole is at or below the expected ground height
+// high when the sole is at or below the expected ground height. pz is the
+// height above the estimated ground, so muy_zg_ is a margin above it
 double ContactFusion::calculate_height_contact_probability(double pz)
 {
     double erf = std::erf((this->muy_zg_ - pz)/(this->sigma_zg_*std::sqrt(2)));
@@ -145,10 +148,31 @@ const VectorXd &ContactFusion::fuseContactProbability (const std::vector<bool> &
                                                       const std::vector<double> &phi)
 {
     const int n = static_cast<int>(foot_ids_.size());
+
+    // Adaptive ground height (paper Sec. IV-B.1), from the previous tick's
+    // contact state and sole heights: a foot in contact stands on the ground;
+    // a swinging foot expects the ground at the mean height of the feet in
+    // contact (terrain assumed locally flat). With no foot in contact the last
+    // estimate is kept. At the first call every foot is assumed on the ground.
+    if (!ground_initialized_)
+    {
+        prev_foot_height_ = foot_height_;
+        ground_initialized_ = true;
+    }
+    double stance_sum = 0.0;
+    int n_stance = 0;
+    for (int i = 0; i < n; ++i)
+        if (contact_state_[i]) { stance_sum += prev_foot_height_[i]; ++n_stance; }
     for (int i = 0; i < n; ++i)
     {
-        u_(i) = calculate_phase_contact_probability(phi[i], s_phi[i]);         // eq. 14
-        z_(i) = calculate_height_contact_probability(foot_height_[i]);         // eq. 21
+        if (contact_state_[i]) ground_height_[i] = prev_foot_height_[i];
+        else if (n_stance > 0) ground_height_[i] = stance_sum / n_stance;
+    }
+
+    for (int i = 0; i < n; ++i)
+    {
+        u_(i) = calculate_phase_contact_probability(phi[i], s_phi[i]);                        // eq. 14
+        z_(i) = calculate_height_contact_probability(foot_height_[i] - ground_height_[i]);    // eq. 21
         z_(n + i) = calculate_force_contact_probability(foot_wrench_[i](2));   // eq. 23
     }
 
@@ -164,6 +188,7 @@ const VectorXd &ContactFusion::fuseContactProbability (const std::vector<bool> &
         if (!contact_state_[i] && p_fused_(i) > p_on_) contact_state_[i] = true;
         else if (contact_state_[i] && p_fused_(i) < p_off_) contact_state_[i] = false;
     }
+    prev_foot_height_ = foot_height_;
     return p_fused_;
 }
 

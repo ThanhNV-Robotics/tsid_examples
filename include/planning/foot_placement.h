@@ -37,6 +37,15 @@ public:
     double zOff_W{0.0};        // touchdown stretch: landing target relative to the ground (stance foot height) [m]; < 0 reaches below the ground
     double kp_vx{0.0}, kp_vy{0.0}, kp_wz{0.0}; // Raibert velocity-feedback gains
     double maxStepLength{0.1}; // |stepLength| limit [m]
+    // Late touchdown (WalkPlanner::isLate()): after phi = 1 the swing foot keeps
+    // descending below the planned landing point until it finds the ground
+    double lateDescentSpeed{0.15}; // [m/s]
+    double lateMaxDepth{0.05};     // deepest target below the planned landing height [m], <= 0: no limit
+    // The descent velocity ramps from 0 to lateDescentSpeed over this time: a
+    // velocity jump at the start of the late state makes the swing task's
+    // damping demand a large downward acceleration at once, and a foot already
+    // resting on the ground is then driven into it (70-120 N kicks seen at 1 m/s)
+    double lateDescentRampTime{0.05}; // [s], <= 0: no ramp
     std::string leftFootFrame{"left_ankle_pitch_link"};
     std::string rightFootFrame{"right_ankle_pitch_link"};
 

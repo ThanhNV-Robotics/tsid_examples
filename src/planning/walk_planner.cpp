@@ -3,32 +3,10 @@
 #include "common/data_type.h"
 #include "planning/joystick_interpreter.h"
 #include <cmath>
+#include <cstdio>
 #include <stdexcept>
 #include <iostream>
 #include <vector>
-
-namespace
-{
-// +1 for the right-stance target side, -1 for left, 0 (no target) for DSt.
-// Matches the original, validated-correct convention: entering LSt aims the
-// CoM at -0.5*wd_hip, entering RSt at +0.5*wd_hip (see git history / HEAD).
-double sideSign(LegState s)
-{
-    if (s == LegState::RSt) return 1.0;
-    if (s == LegState::LSt) return -1.0;
-    return 0.0;
-}
-
-// LSt<->RSt swapped, DSt unchanged. Used to turn a TARGET label (which side
-// the CoM was shifting toward) into "which foot is now free" -- see
-// leg_state_swing_'s comment in WalkPlanner.h.
-LegState oppositeLeg(LegState s)
-{
-    if (s == LegState::RSt) return LegState::LSt;
-    if (s == LegState::LSt) return LegState::RSt;
-    return LegState::DSt;
-}
-} // namespace
 
 namespace
 {
@@ -69,6 +47,8 @@ WalkPlanner::WalkPlanner(const YAML::Node &cfg, const double zIn)
     this->sole_y_half_ = readOr(cfg, "sole_y_half", this->sole_y_half_);
     this->phi_td_min_ = readOr(cfg, "touchdown_phase_min", this->phi_td_min_);
     this->td_confirm_time_ = readOr(cfg, "touchdown_confirm_time", this->td_confirm_time_);
+    this->late_confirm_time_ = readOr(cfg, "late_confirm_time", this->late_confirm_time_);
+    this->late_timeout_ = readOr(cfg, "late_touchdown_timeout", this->late_timeout_);
 
     this->zc_ = zIn;
     this->w = std::sqrt(this->g/this->zc_);
@@ -235,11 +215,23 @@ void WalkPlanner::planWalking (JoyStickInterpreter &joystick, Cheat_StateEstimat
     // flags are only used to detect the swing foot's touchdown.
     if (initStepping)
     {
-        if (stance_leg_ == LegState::DSt) {
-            enterStance(LegState::LSt, robot_wrapper, data);
-        } else {
-            const bool left_stance = (stance_leg_ == LegState::LSt);
+        if (stance_leg_ == LegState::DSt) 
+        {
+            enterStance(LegState::LSt, robot_wrapper, data); // left leg stand first (first step)
+        } 
+        
+        else // during walking        
+        {
+            // which leg is in stand: true = left stand/right swing, false = right stand/left swing
+            const bool left_stance = (stance_leg_ == LegState::LSt); 
+
+            // contact flags (from fusion model or cheat estimator)
+            // contact flags is [left, right]
+            // the planner determin which leg is swinging
+            // if left_stance then take contact_flags[1] -> right foot swings
             const bool swing_contact = contact_flags[left_stance ? 1 : 0];
+
+
             if (!swing_contact) swing_lifted_ = true;
             // Time the swing foot has been back in contact without interruption
             swing_contact_time_ = (swing_lifted_ && swing_contact) ? swing_contact_time_ + dt_ : 0.0;
@@ -248,13 +240,37 @@ void WalkPlanner::planWalking (JoyStickInterpreter &joystick, Cheat_StateEstimat
             // confirmed for td_confirm_time_ (a light touch just before phi = 1
             // or a bounce does not end the step), late enough in the step
             // (rejects flicker right after lift-off).
-            // Otherwise the step always ends on time: the swing trajectory has
-            // brought the foot down by phi = 1, and waiting for the contact flag
-            // instead lets the CP diverge (constant ZMP on the old stance foot)
             const bool touchdown = swing_lifted_ && swing_contact_time_ >= td_confirm_time_
                                    && phi_CoM >= phi_td_min_;
             const bool step_end = phi_CoM >= 1.0;
-            if (touchdown || step_end) {
+
+            // Late touchdown: the step is over but the swing foot is not on the
+            // ground (ground lower than expected). Ending the step now would add
+            // a rigid TSID contact in the air and drop the robot onto it, so the
+            // support leg is kept while the swing foot keeps descending; the step
+            // ends on a confirmed contact, or after late_timeout_ (the CP
+            // diverges meanwhile: constant ZMP on the old stance foot)
+
+            // if the step ends but the swing foot not contact yet
+            if (step_end && !late_ && !swing_contact) {
+                late_ = true; // turn on this flag to indicate that late contact dectected
+                late_time_ = 0.0;
+            }
+
+            // // Phase 2 handle the late touch
+            bool end_step = touchdown || step_end;
+            if (late_) {
+                late_time_ += dt_;
+                const bool late_touchdown = swing_contact_time_ >= late_confirm_time_;
+                // The foot keeps stretching down until the touchdown; the timeout
+                // is an optional safety net (late_timeout_ <= 0: wait for contact)
+                end_step = late_touchdown || (late_timeout_ > 0.0 && late_time_ >= late_timeout_);
+                if (end_step && !late_touchdown) {
+                    std::printf("[WalkPlanner] late touchdown timeout (%.3f s): step ended without contact\n",
+                                late_time_);
+                }
+            }
+            if (end_step) {
                 enterStance(left_stance ? LegState::RSt : LegState::LSt, robot_wrapper, data);
             }
         }
@@ -321,6 +337,8 @@ void WalkPlanner::enterStance(LegState stance, const tsid::robots::RobotWrapper 
     this->phi_CoM = 0.0;
     this->swing_lifted_ = false;
     this->swing_contact_time_ = 0.0;
+    this->late_ = false;
+    this->late_time_ = 0.0;
     this->stance_z_W_ = oMst.translation().z();
     this->stance_changed_ = true;
 }

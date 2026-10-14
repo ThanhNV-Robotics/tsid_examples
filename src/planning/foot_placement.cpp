@@ -39,6 +39,9 @@ FootPlacement::FootPlacement(const std::string &yamlPath, const tsid::robots::Ro
     readIfPresent(fp, "kp_vy", kp_vy);
     readIfPresent(fp, "kp_wz", kp_wz);
     readIfPresent(fp, "max_step_length", maxStepLength);
+    readIfPresent(fp, "late_descent_speed", lateDescentSpeed);
+    readIfPresent(fp, "late_max_depth", lateMaxDepth);
+    readIfPresent(fp, "late_descent_ramp_time", lateDescentRampTime);
     readIfPresent(fp, "left_foot_frame", leftFootFrame);
     readIfPresent(fp, "right_foot_frame", rightFootFrame);
 
@@ -151,5 +154,31 @@ void FootPlacement::StepSwingPlanning(const RobotState &state, const pinocchio::
     posDes_W.z() += zOff_W;
     stepLength = walk_planner.step_length;
     computeSwingTrajectory();
+
+    // Late touchdown: the cycloid ended at the landing point (phi = 1) without
+    // contact; keep x, y there and lower the target at a constant speed until
+    // the walk planner sees the contact, at most lateMaxDepth (if > 0)
+    if (walk_planner.isLate()) {
+        // Descent profile: constant acceleration up to lateDescentSpeed over
+        // lateDescentRampTime, then constant speed
+        const double t = walk_planner.getLateTime();
+        const double v = lateDescentSpeed, T = lateDescentRampTime;
+        double depth, speed, accel;
+        if (T > 0.0 && t < T) {
+            depth = 0.5 * v * t * t / T;
+            speed = v * t / T;
+            accel = v / T;
+        } else {
+            depth = (T > 0.0) ? v * (t - 0.5 * T) : v * t;
+            speed = v;
+            accel = 0.0;
+        }
+        // lateMaxDepth <= 0: no depth limit, the target keeps descending
+        const bool bottomed = lateMaxDepth > 0.0 && depth >= lateMaxDepth;
+        pDes_ = posDes_W;
+        pDes_.z() -= bottomed ? lateMaxDepth : depth;
+        vDes_ = Eigen::Vector3d(0.0, 0.0, bottomed ? 0.0 : -speed);
+        aDes_ = Eigen::Vector3d(0.0, 0.0, bottomed ? 0.0 : -accel);
+    }
 }
 
