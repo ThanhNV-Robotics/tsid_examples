@@ -77,3 +77,5 @@ tsid/
 # Simulation logs, recordings, data output
 record/
 script
+
+.json

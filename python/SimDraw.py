@@ -17,17 +17,44 @@ class SimDraw:
                  xlim=(-0.2, 0.5), 
                  ylim=(-0.3, 0.3), 
                  zlim=(0.0, 0.6), 
-                 decimate: int = 25, 
-                 show_foot: bool = True):
+                 decimate: int = 25,
+                 show_foot: bool = True,
+                 track_com: bool = True,
+                 track_smoothing: float = 0.03,
+                 grid_step: float = 0.1):
+        """
+        :param track_com:       keep the x/y view centred on the CoM (camera follows the robot).
+        :param track_smoothing: low-pass gain (0..1] per rendered frame for the camera centre;
+                                small values smooth out the lateral CoM sway, 1.0 follows exactly.
+        :param grid_step:       ground grid spacing [m]; grid lines stay fixed in the world.
+        """
         self.zc = zc
         self.hip_width = hip_width
         self.decimate = decimate
         self.show_foot = show_foot
         self.step_count = 0
+
+        self.track_com = track_com
+        self.track_smoothing = track_smoothing
+        self.grid_step = grid_step
+        self.x_span = xlim[1] - xlim[0]
+        self.y_span = ylim[1] - ylim[0]
+        self.view_center = None # camera centre [x, y], set from the first CoM
+        self.ground = None
         
         # Default foot positions (Left & Right contact frames)
         self.lf_pos = np.array([0.0, self.hip_width / 2.0, 0.0])
         self.rf_pos = np.array([0.0, -self.hip_width / 2.0, 0.0])
+
+        self.step_height = 0.1
+
+        # Left foot desired position
+        self.Px_d_L = np.array([0.0, 0.0, 0.0])
+        self.Pz_d_L = np.array([0.0, 0.0, 0.0])
+
+        # Right foot desired position
+        self.Px_d_R = np.array([0.0, 0.0, 0.0])
+        self.Pz_d_R = np.array([0.0, 0.0, 0.0])
         
         # Interactive mode on for real-time rendering
         plt.ion()
@@ -48,10 +75,7 @@ class SimDraw:
         self.ax.view_init(elev=25, azim=-60)
         
         # Ground wireframe at z=0
-        gx = np.linspace(xlim[0], xlim[1], 10)
-        gy = np.linspace(ylim[0], ylim[1], 10)
-        GX, GY = np.meshgrid(gx, gy)
-        self.ax.plot_wireframe(GX, GY, np.zeros_like(GX), color='lightgray', alpha=0.4, lw=0.5)
+        self._draw_ground(xlim, ylim)
         
         # Trajectory history buffers
         self.com_hist = []
@@ -82,6 +106,36 @@ class SimDraw:
         self.zmp_traj, = self.ax.plot([], [], [], 'r:', lw=1.2, alpha=0.7, label='ZMP Trajectory')
         
         self.ax.legend(loc='upper right', fontsize=7, ncol=2)
+
+    def _draw_ground(self, xlim, ylim):
+        """Ground wireframe covering xlim/ylim; lines snap to multiples of grid_step,
+        so they stay fixed in the world while the view moves."""
+        if self.ground is not None:
+            self.ground.remove()
+        gx = np.arange(np.floor(xlim[0] / self.grid_step), np.ceil(xlim[1] / self.grid_step) + 1) * self.grid_step
+        gy = np.arange(np.floor(ylim[0] / self.grid_step), np.ceil(ylim[1] / self.grid_step) + 1) * self.grid_step
+        GX, GY = np.meshgrid(gx, gy)
+        self.ground = self.ax.plot_wireframe(GX, GY, np.zeros_like(GX), color='lightgray', alpha=0.4, lw=0.5)
+
+    def _track_view(self, com_3d):
+        """Moves the x/y axis limits so the (smoothed) CoM stays in the centre of the view."""
+        if self.view_center is None:
+            self.view_center = com_3d[:2].copy()
+        else:
+            self.view_center += self.track_smoothing * (com_3d[:2] - self.view_center)
+        xlim = (self.view_center[0] - 0.5 * self.x_span, self.view_center[0] + 0.5 * self.x_span)
+        ylim = (self.view_center[1] - 0.5 * self.y_span, self.view_center[1] + 0.5 * self.y_span)
+        self.ax.set_xlim(xlim)
+        self.ax.set_ylim(ylim)
+        self._draw_ground(xlim, ylim)
+
+    def _clip_to_view(self, pts):
+        """Returns a copy of pts (N x 3) with points outside the current x/y limits set to NaN."""
+        xlim, ylim = self.ax.get_xlim(), self.ax.get_ylim()
+        outside = (pts[:, 0] < xlim[0]) | (pts[:, 0] > xlim[1]) | (pts[:, 1] < ylim[0]) | (pts[:, 1] > ylim[1])
+        pts = pts.copy()
+        pts[outside] = np.nan
+        return pts
 
     def update(self, com, zmp=None, cp=None, left_foot=None, right_foot=None, lf=None, rf=None, pause: float = 0.001):
         """
@@ -178,10 +232,18 @@ class SimDraw:
         # 9. Update trajectory lines
         com_arr = np.array(self.com_hist)
         zmp_arr = np.array(self.zmp_hist)
+        if self.track_com:
+            # 3D axes do not clip lines: hide the history that left the moving view
+            com_arr = self._clip_to_view(com_arr)
+            zmp_arr = self._clip_to_view(zmp_arr)
         self.com_traj.set_data(com_arr[:, 0], com_arr[:, 1])
         self.com_traj.set_3d_properties(com_arr[:, 2])
         self.zmp_traj.set_data(zmp_arr[:, 0], zmp_arr[:, 1])
         self.zmp_traj.set_3d_properties(zmp_arr[:, 2])
+
+        # 10. Camera follows the CoM
+        if self.track_com:
+            self._track_view(com_3d)
 
         plt.pause(pause)
 

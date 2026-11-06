@@ -82,7 +82,7 @@ void UIctr::createWindow(const char* windowTitle, bool saveVideo) {
     mjv_makeScene(mj_model, &scn, 2000);
     mjr_makeContext(mj_model, &con, mjFONTSCALE_150);
 
-    mjv_moveCamera(mj_model, mjMOUSE_ROTATE_H, 0.0, 0.0, &scn, &cam);
+    mjv_moveCamera(mj_model, mjMOUSE_ROTATE_H, 0.0, 0.0, &cam);
 
     glfwSetWindowUserPointer(window, this);
     glfwSetKeyCallback(window, keyboardCallback);
@@ -320,12 +320,12 @@ void UIctr::Mouse_move(double xpos, double ypos) {
     if (pert.active) {
         mjv_movePerturb(mj_model, mj_data, action, dx / h, dy / h, &scn, &pert);
     } else {
-        mjv_moveCamera(mj_model, action, dx / h, dy / h, &scn, &cam);
+        mjv_moveCamera(mj_model, action, dx / h, dy / h, &cam);
     }
 }
 
 void UIctr::Scroll(double xoffset, double yoffset) {
-    mjv_moveCamera(mj_model, mjMOUSE_ZOOM, 0, 0.05 * yoffset, &scn, &cam);
+    mjv_moveCamera(mj_model, mjMOUSE_ZOOM, 0, 0.05 * yoffset, &cam);
 }
 
 void UIctr::applyPerturbation() {

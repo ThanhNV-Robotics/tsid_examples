@@ -31,6 +31,14 @@ list(APPEND CMAKE_PREFIX_PATH
   "/usr/local"
 )
 
+# urdfdom comes from ROS (ros-<distro>-urdfdom); add its prefix so pkg-config
+# finds urdfdom.pc even when ROS is not sourced
+if(DEFINED ENV{ROS_DISTRO})
+  list(APPEND CMAKE_PREFIX_PATH "/opt/ros/$ENV{ROS_DISTRO}")
+elseif(EXISTS "/opt/ros/humble")
+  list(APPEND CMAKE_PREFIX_PATH "/opt/ros/humble")
+endif()
+
 # -----------------------------------------------------------------------------
 # System-wide packages
 # -----------------------------------------------------------------------------
@@ -46,12 +54,14 @@ if(NOT TARGET mujoco::mujoco)
     INTERFACE_INCLUDE_DIRECTORIES /opt/mujoco/include)
 endif()
 find_package(pinocchio REQUIRED)
-find_package(tsid QUIET)
+find_package(tsid REQUIRED)
 
 find_package(OpenGL REQUIRED)
 find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(urdfdom REQUIRED IMPORTED_TARGET urdfdom)
+# Prefix differs from the urdfdom CMake package (pulled in by pinocchio) so
+# pkg-config results such as urdfdom_FOUND do not clash with it
+pkg_check_modules(urdfdom_pc REQUIRED IMPORTED_TARGET urdfdom)
 find_package(Boost REQUIRED COMPONENTS filesystem system)
 find_package(yaml-cpp QUIET)
 pkg_check_modules(tinyxml2 REQUIRED IMPORTED_TARGET tinyxml2)
@@ -91,7 +101,7 @@ target_compile_definitions(core PUBLIC
 target_link_libraries(core PUBLIC
   tinyxml2::tinyxml2
   pinocchio::pinocchio
-  PkgConfig::urdfdom
+  PkgConfig::urdfdom_pc
   mujoco::mujoco
   glfw
   Eigen3::Eigen

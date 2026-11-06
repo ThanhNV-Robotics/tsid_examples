@@ -78,7 +78,7 @@
 
     <worldbody>
         <!--   Link0_Torso -->
-        <body name="link0_torso" pos="0 0 0.80" euler="0 0 0">
+        <body name="link0_torso" pos="0 0 0.8" euler="0 0 0">
             <geom type="mesh" class="visual" mesh="link0_torso" />
             <geom class="collision" size="0.09 0.170 0.170" pos="0 0 0.15" type="box" />
             <joint name="floating_base_joint" type="free" limited="false" actuatorfrclimited="false"/>
