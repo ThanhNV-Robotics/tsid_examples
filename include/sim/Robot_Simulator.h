@@ -25,6 +25,7 @@
 #define HAS_YAML_CPP 1
 #endif
 
+
 // Forward declarations for optional DataBus integrations
 class DataBus;
 struct RobotSensor;
@@ -80,6 +81,15 @@ public:
     void createWindow(const char* windowTitle, bool saveVideo = false);
     void updateScene();
 
+    // Viewer camera, after the window exists. distance [m], azimuth and elevation [deg];
+    // track = the camera follows the first body of the model
+    void setCamera(double distance, double azimuth, double elevation, bool track = false);
+    // Video of the viewer, before the window exists; takes effect with saveVideo = true.
+    // fps counts simulated time, so the video plays at real speed. Frame size in pixels (even numbers
+    // for H.264), independent of the window. crf: H.264 quality, lower = better and larger (18 ~ visually lossless)
+    void setVideoFile(const std::string& path, double fps = 30.0, int frame_width = 1920, int frame_height = 1080,
+                      int crf = 18);
+
     // Real-time sensor plot overlay
     void initSensorFigure(const char* title, const char* lineNames[], const float lineColors[][3], int numLines);
     void updateSensorFigure(double time, const double* values, int numLines);
@@ -132,8 +142,13 @@ protected:
     std::vector<VisualArrow> custom_arrows_;
     std::vector<VisualSphere> custom_spheres_;
     unsigned char* image_rgb_{nullptr};
-    float* image_depth_{nullptr};
-    FILE* file{nullptr};
+    FILE* video_pipe_{nullptr}; // stdin of the ffmpeg encoder
+    std::string video_path_{std::string(PROJECT_ROOT_DIR) + "/record/video.mp4"};
+    double video_fps_{30.0};
+    double next_frame_time_{0.0}; // [s] simulated time of the next video frame
+    int video_width_{1920};
+    int video_height_{1080};
+    int video_crf_{18};
 
     int width{1200};
     int height{800};

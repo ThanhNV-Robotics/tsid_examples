@@ -35,8 +35,8 @@ def parse_args():
         "-f",
         "--file",
         type=str,
-        default="record/biped_standing_joint_control.csv",
-        help="Path to the CSV log file (default: record/biped_standing_joint_control.csv)",
+        default="record/biped_walking.csv",
+        help="Path to the CSV log file (default: record/biped_walking.csv)",
     )
     parser.add_argument(
         "-s",

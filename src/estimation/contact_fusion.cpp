@@ -9,6 +9,7 @@
 #include <pinocchio/algorithm/frames.hpp>   // updateFramePlacements, getFrameJacobian
 #include <pinocchio/algorithm/center-of-mass.hpp> // computeTotalMass
 #include <Eigen/SVD>
+#include <limits>
 #include <stdexcept>
 
 // Constructor
@@ -29,6 +30,9 @@ ContactFusion::ContactFusion(const pinocchio::Model &model, const std::vector<st
 
     this->y_ = VectorXd::Zero(model.nv);
     this->tau_d_ = VectorXd::Zero(model.nv);
+    this->p_ = VectorXd::Zero(model.nv);
+    this->St_ = VectorXd::Zero(model.nv);
+    this->x_ = VectorXd::Zero(model.nv);
     this->J_ = Jacobian6::Zero(6, model.nv);
     // Physical range of the vertical foot force: the ground only pushes, and a
     // walking step stays far below 3 m g
@@ -49,6 +53,9 @@ ContactFusion::ContactFusion(const pinocchio::Model &model, const std::vector<st
             if (j == 0 || idx_v < 6) continue; // universe and free-flyer
             for (int k = 0; k < model.joints[j].nv(); ++k) dofs.push_back(idx_v + k);
         }
+        // the wrench solve works in fixed-size buffers (LegMatrix)
+        if (static_cast<int>(dofs.size()) > kMaxLegDofs)
+            throw std::runtime_error("ContactFusion: more than 6 leg joints for foot frame " + name);
         this->foot_ids_.push_back(fid);
         this->leg_dofs_.push_back(dofs);
         this->foot_wrench_.push_back(Vector6d::Zero());
@@ -59,12 +66,26 @@ ContactFusion::ContactFusion(const pinocchio::Model &model, const std::vector<st
     }
 
     // The robot starts standing on all feet: initial contact probability 1
-    const int n_feet = static_cast<int>(foot_frames.size());
+    this->reset();
+}
+
+void ContactFusion::reset ()
+{
+    // contact probability 1 on every foot, fusion filter at its initial covariance
+    const int n_feet = static_cast<int>(this->foot_ids_.size());
     this->contact_filter.init(VectorXd::Ones(n_feet));
     this->u_ = VectorXd::Ones(n_feet);
     this->z_ = VectorXd::Ones(2 * n_feet);
     this->p_fused_ = VectorXd::Ones(n_feet);
     this->contact_state_.assign(n_feet, true);
+
+    // observer and foot wrenches from zero; the observer state is seeded with the first tick's
+    // momentum, the ground with the first fusion step's sole heights
+    this->y_.setZero();
+    this->tau_d_.setZero();
+    for (auto &wrench : this->foot_wrench_) wrench.setZero();
+    this->initialized_ = false;
+    this->ground_initialized_ = false;
 }
 
 // Contact probability Kalman filter (paper eq. 12-25). With A = 0 the
@@ -95,18 +116,19 @@ const VectorXd &ContactFusion::computeDisturbanceTorque (const VectorXd &q, cons
     pinocchio::computeCoriolisMatrix(model_, data_, q, v); // Compute Corriolis matrix
     pinocchio::computeGeneralizedGravity(model_, data_, q); // g(q) compute gravity vector
 
-    // Compute generalized Momentumn
-    const VectorXd p = data_.M * v;
+    // Compute generalized Momentumn (buffers p_, St_, x_: no allocation per tick)
+    p_.noalias() = data_.M * v;
     // Selection matrix for joint torque vector
-    VectorXd St = VectorXd::Zero(model_.nv);
-    St.tail(tau.size()) = tau; // S^T: no torque on the 6 base DoF
-    const VectorXd x = beta_ * p + St + data_.C.transpose() * v - data_.g;
+    St_.setZero();
+    St_.tail(tau.size()) = tau; // S^T: no torque on the 6 base DoF
+    x_ = beta_ * p_ + St_ - data_.g;
+    x_.noalias() += data_.C.transpose() * v;
 
     if (!initialized_) // first time step
-    {y_ = x; initialized_ = true;}
+    {y_ = x_; initialized_ = true;}
 
-    y_ = gamma_ * y_ + (1.0 - gamma_) * x;
-    tau_d_ = beta_ * p - y_;
+    y_ = gamma_ * y_ + (1.0 - gamma_) * x_;
+    tau_d_ = beta_ * p_ - y_;
 
     computeFootWrenches(q);
     return tau_d_;
@@ -203,8 +225,12 @@ void ContactFusion::computeFootWrenches (const VectorXd &q)
     {
         // Sole height: lowest corner in the world frame, so a heel or toe strike
         // on a tilted foot counts as soon as one corner reaches the ground
+        // (z of each corner = row 2 of the placement; a loop, no 3 x k temporary)
         const pinocchio::SE3 &oMf = data_.oMf[foot_ids_[i]];
-        foot_height_[i] = ((oMf.rotation() * sole_corners_[i]).colwise() + oMf.translation()).row(2).minCoeff();
+        double z_min = std::numeric_limits<double>::infinity();
+        for (Eigen::Index c = 0; c < sole_corners_[i].cols(); ++c)
+            z_min = std::min(z_min, oMf.rotation().row(2).dot(sole_corners_[i].col(c)) + oMf.translation()(2));
+        foot_height_[i] = z_min;
 
         J_.setZero();
         // LOCAL_WORLD_ALIGNED: wrench at the foot frame origin, world axes (f_z = vertical)
@@ -212,8 +238,8 @@ void ContactFusion::computeFootWrenches (const VectorXd &q)
 
         const std::vector<int> &dofs = leg_dofs_[i];
         const int n = static_cast<int>(dofs.size());
-        MatrixXd SJt(n, 6); // S_i J_i^T: 6 x 6 for a 6-DoF leg
-        VectorXd Stau_d(n); // S_i tau_d
+        LegMatrix SJt(n, 6); // S_i J_i^T: 6 x 6 for a 6-DoF leg
+        LegVector Stau_d(n); // S_i tau_d
         for (int k = 0; k < n; ++k)
         {
             SJt.row(k) = J_.col(dofs[k]).transpose();
@@ -224,10 +250,13 @@ void ContactFusion::computeFootWrenches (const VectorXd &q)
         // an exact solve (inverse / QR) divides the observer noise by it and the
         // estimate blows up (|f| ~ 1e5 N seen at the end of stance). Damping
         // drops those directions instead.
-        const Eigen::JacobiSVD<MatrixXd> svd(SJt, Eigen::ComputeFullU | Eigen::ComputeFullV);
-        const VectorXd s = svd.singularValues();
-        const VectorXd s_damped = s.cwiseQuotient((s.array().square() + wrench_damping_ * wrench_damping_).matrix());
-        foot_wrench_[i] = svd.matrixV() * s_damped.asDiagonal() * svd.matrixU().transpose() * Stau_d;
+        // (fixed maximum size: the SVD and the products stay off the heap)
+        const Eigen::JacobiSVD<LegMatrix> svd(SJt, Eigen::ComputeFullU | Eigen::ComputeFullV);
+        const auto &s = svd.singularValues();
+        LegVector w = svd.matrixU().transpose() * Stau_d; // U^T (S_i tau_d)
+        for (Eigen::Index k = 0; k < s.size(); ++k)
+            w(k) *= s(k) / (s(k) * s(k) + wrench_damping_ * wrench_damping_);
+        foot_wrench_[i].noalias() = svd.matrixV().leftCols(s.size()) * w.head(s.size());
         foot_wrench_[i](2) = std::clamp(foot_wrench_[i](2), 0.0, f_z_max_);
     }
 }

@@ -1,5 +1,7 @@
 #include "sim/Robot_Simulator.h"
 
+#include <csignal>
+#include <cstdio>
 #include <cstdlib>
 
 namespace {
@@ -53,8 +55,10 @@ void UIctr::iniGLFW() {
 
 void UIctr::createWindow(const char* windowTitle, bool saveVideo) {
     if (headless()) glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    if (saveVideo) glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); // a video has one frame size
     window = glfwCreateWindow(width, height, windowTitle, NULL, NULL);
     glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
     if (!window) {
         mju_error("Could not create GLFW window");
     }
@@ -80,6 +84,11 @@ void UIctr::createWindow(const char* windowTitle, bool saveVideo) {
     mjv_defaultScene(&scn);
     mjr_defaultContext(&con);
     mjv_makeScene(mj_model, &scn, 2000);
+    if (saveVideo) {
+        // Video frames use the offscreen buffer (multisampled): their size does not depend on the window
+        mj_model->vis.global.offwidth = this->video_width_;
+        mj_model->vis.global.offheight = this->video_height_;
+    }
     mjr_makeContext(mj_model, &con, mjFONTSCALE_150);
 
     mjv_moveCamera(mj_model, mjMOUSE_ROTATE_H, 0.0, 0.0, &cam);
@@ -92,14 +101,41 @@ void UIctr::createWindow(const char* windowTitle, bool saveVideo) {
 
     save_video = saveVideo;
     if (save_video) {
-        image_rgb_ = (unsigned char*)malloc(3 * width * height * sizeof(unsigned char));
-        image_depth_ = (float*)malloc(sizeof(float) * width * height);
+        this->image_rgb_ = (unsigned char*)malloc(3 * this->video_width_ * this->video_height_);
 
-        file = fopen("../record/rgbRec.out", "wb");
-        if (!file) {
-            mju_error("Could not open rgbfile for writing");
+        // Raw frames to the ffmpeg encoder, H.264 at constant quality (OpenCV's writer cannot set
+        // crf). OpenGL rows start at the bottom: vflip
+        if (std::system("command -v ffmpeg > /dev/null") != 0) {
+            mju_error("ffmpeg not found: it is needed to record the video");
         }
+        const std::string command =
+            "ffmpeg -y -loglevel error -f rawvideo -pix_fmt rgb24 -s " + std::to_string(this->video_width_) + "x" +
+            std::to_string(this->video_height_) + " -r " + std::to_string(this->video_fps_) +
+            " -i - -vf vflip -c:v libx264 -preset medium -crf " + std::to_string(this->video_crf_) +
+            " -pix_fmt yuv420p -movflags +faststart '" + this->video_path_ + "'";
+        std::signal(SIGPIPE, SIG_IGN); // if ffmpeg stops, fwrite reports it instead of killing the run
+        this->video_pipe_ = popen(command.c_str(), "w");
+        if (!this->video_pipe_) {
+            mju_error("Could not start ffmpeg to write the video");
+        }
+        this->next_frame_time_ = mj_data->time;
     }
+}
+
+void UIctr::setCamera(double distance, double azimuth, double elevation, bool track) {
+    this->cam.distance = distance;
+    this->cam.azimuth = azimuth;
+    this->cam.elevation = elevation;
+    this->cam.type = track ? mjCAMERA_TRACKING : mjCAMERA_FREE;
+    this->cam.trackbodyid = track ? 1 : -1;
+}
+
+void UIctr::setVideoFile(const std::string& path, double fps, int frame_width, int frame_height, int crf) {
+    this->video_path_ = path;
+    this->video_fps_ = fps;
+    this->video_width_ = frame_width;
+    this->video_height_ = frame_height;
+    this->video_crf_ = crf;
 }
 
 void UIctr::initSensorFigure(const char* title, const char* lineNames[], const float lineColors[][3], int numLines) {
@@ -182,25 +218,42 @@ void UIctr::updateScene() {
     }
     custom_spheres_.clear();
 
+    // Scene, time and sensor figure into the current buffer
+    auto draw = [&](const mjrRect& rect) {
+        mjr_render(rect, &scn, &con);
+
+        char buffer[100];
+        std::sprintf(buffer, "Time: %.3f", mj_data->time);
+        mjr_overlay(mjFONT_NORMAL, mjGRID_TOPRIGHT, rect, buffer, NULL, &con);
+
+        if (sensorFigureIni) {
+            mjrRect figViewport = {rect.width - rect.width / 2, 0, rect.width / 2, rect.height / 2};
+            mjr_figure(figViewport, &figSensor, &con);
+        }
+    };
+
     glfwGetFramebufferSize(window, &viewport.width, &viewport.height);
-    mjr_render(viewport, &scn, &con);
+    draw(viewport);
 
-    char buffer[100];
-    std::sprintf(buffer, "Time: %.3f", mj_data->time);
-    mjr_overlay(mjFONT_NORMAL, mjGRID_TOPRIGHT, viewport, buffer, NULL, &con);
+    // Video frame on simulated time, drawn again in the offscreen buffer
+    if (this->video_pipe_ && mj_data->time >= this->next_frame_time_) {
+        const mjrRect frame = {0, 0, this->video_width_, this->video_height_};
+        mjr_setBuffer(mjFB_OFFSCREEN, &con);
+        draw(frame);
+        mjr_readPixels(this->image_rgb_, nullptr, frame, &con);
+        mjr_setBuffer(mjFB_WINDOW, &con);
 
-    if (sensorFigureIni) {
-        mjrRect figViewport = {viewport.width - viewport.width / 2, 0, viewport.width / 2, viewport.height / 2};
-        mjr_figure(figViewport, &figSensor, &con);
+        const size_t frame_bytes = 3 * static_cast<size_t>(this->video_width_) * this->video_height_;
+        if (std::fwrite(this->image_rgb_, 1, frame_bytes, this->video_pipe_) != frame_bytes) {
+            std::fprintf(stderr, "[UIctr] ffmpeg stopped, the video ends here\n");
+            pclose(this->video_pipe_);
+            this->video_pipe_ = nullptr;
+        }
+        this->next_frame_time_ += 1.0 / this->video_fps_;
     }
 
     glfwSwapBuffers(window);
     glfwPollEvents();
-
-    if (save_video && file) {
-        mjr_readPixels(image_rgb_, image_depth_, viewport, &con);
-        fwrite(image_rgb_, sizeof(unsigned char), 3 * width * height, file);
-    }
 }
 
 void UIctr::Keyboard(int key, int scancode, int act, int mods) {
@@ -215,6 +268,13 @@ void UIctr::Keyboard(int key, int scancode, int act, int mods) {
     if (act == GLFW_RELEASE && key == GLFW_KEY_2) {
         runSim = true;
         isContinuous = false;
+    }
+    // T: the camera follows the first body of the model, or stays where it is
+    if (act == GLFW_RELEASE && key == GLFW_KEY_T) {
+        const bool track = this->cam.type != mjCAMERA_TRACKING;
+        this->cam.type = track ? mjCAMERA_TRACKING : mjCAMERA_FREE;
+        this->cam.trackbodyid = track ? 1 : -1;
+        std::printf("[SIM] camera tracking %s\n", track ? "on" : "off");
     }
     if (act == GLFW_RELEASE && key == GLFW_KEY_W) buttonRead.key_w = true;
     if (act == GLFW_RELEASE && key == GLFW_KEY_A) buttonRead.key_a = true;
@@ -351,13 +411,11 @@ void UIctr::Close() {
     }
     mjr_freeContext(&con);
     mjv_freeScene(&scn);
-    if (save_video && file) {
-        fclose(file);
-        file = nullptr;
-        free(image_rgb_);
-        free(image_depth_);
-        image_rgb_ = nullptr;
-        image_depth_ = nullptr;
+    if (this->video_pipe_) {
+        pclose(this->video_pipe_); // waits for ffmpeg to finish the file
+        this->video_pipe_ = nullptr;
+        free(this->image_rgb_);
+        this->image_rgb_ = nullptr;
     }
     if (window) {
         glfwDestroyWindow(window);

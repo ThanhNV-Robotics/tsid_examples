@@ -58,8 +58,8 @@ struct RobotSensor
     ActuatorState actuator_state;
     IMUSensor imu_sensor;
 
-    double left_touch_sensor;
-    double right_touch_sensor; 
+    double left_touch_sensor = 0.0;
+    double right_touch_sensor = 0.0;
 
     RobotSensor (int naIn = 0) : actuator_state(naIn)
     {

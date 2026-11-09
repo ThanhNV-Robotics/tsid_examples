@@ -1,0 +1,57 @@
+# Controller options of demos/biped_walking.cpp. Same keys and nesting as section wbc_controller of
+# biped_bringup/config/controllers.yaml in the ROS 2 project; the tasks, contacts and the LIP planner
+# are in config/tsid_wbc.yaml, the drive gains in config/joint_gains.yaml.
+wbc_controller:
+  ros__parameters:
+    # left_foot_frame: left_ankle_pitch_link
+    # right_foot_frame: right_ankle_pitch_link
+
+    # base pose / twist from the simulator's ground truth instead of the state estimator ("cheat"
+    # estimator); false = the state estimator
+    use_ground_truth: false
+    # pure torque: the simulated drive applies the TSID torque (kp = kd = 0); false = PVT commands
+    # with the gains of joint_gains.yaml, as on the robot. (In the ROS 2 project this is false in
+    # the yaml and sim_tsid_wbc.launch.py sets it, default true)
+    torque_mode: true
+    # [m/s] forward walking speed: step length = walk_vx * Tswing, clamped to [0, max_step_length]
+    # of tsid_wbc.yaml (0.3 m with Tswing 1 s: max 0.3 m/s); 0 = stepping in place
+    walk_vx: 0.1
+    # [rad/s] yaw rate at a full turn command (walk_demo turn_command = +-1); the heading of a step
+    # changes by at most max_turn_per_step of tsid_wbc.yaml. Turning is in place (no forward step
+    # while a turn is commanded)
+    max_yaw_rate: 0.2
+    # contact switching while walking: true = time based (the swing foot lands at the end of the
+    # step, the planner's phase variable); false = the contact estimator (the foot lands at the
+    # detected touchdown, from step phase 0.7 on; contact FSM with early / late touchdown)
+    use_time_base: false
+    # [s] use_time_base false: an early contact holds the swing foot where it touched down; the
+    # foot carries load (TSID contact) only once the contact has held this long
+    touchdown_confirm_time: 0.025
+    # [s] use_time_base false: longest wait for a late touchdown (no contact at the end of the step),
+    # then the foot lands in TSID anyway; 0 = no timeout, the step waits for the contact
+    late_touchdown_timeout: 0.05
+
+# The scripted run of demos/biped_walking.cpp (no joystick here)
+walk_demo:
+  # full steps, then one closing step brings the feet side by side and the robot stops. The command
+  # line overrides it: ./build/biped_walking 8. 0 = walk until the window is closed
+  num_steps: 4
+  # turn command in [-1, 1] during the walk (+ left), times max_yaw_rate; not 0 = turning in place
+  turn_command: 0.0
+  # [s] standing still before the first command, and between init walking and the first step
+  settle_time: 0.5
+  # viewer camera: [m] distance to the look-at point, [deg] azimuth and elevation; camera_track true
+  # = the camera follows the robot, key T turns this on and off during the run. The mouse still moves it
+  camera_distance: 3
+  camera_azimuth: 150.0
+  camera_elevation: -20.0
+  camera_track: false
+  # video of the viewer to record/biped_walking.mp4 (overwritten at every run), at real speed. The
+  # window cannot be resized while recording
+  record_video: true
+  video_fps: 60.0
+  # [px] frame size (even numbers), independent of the window; H.264 quality: lower = better and
+  # larger file, 18 ~ visually lossless
+  video_width: 1920
+  video_height: 1080
+  video_crf: 18

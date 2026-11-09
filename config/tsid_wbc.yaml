@@ -1,0 +1,86 @@
+LIPPlanner:
+  Tswing: 1.0
+  sampling_frequency: 500 # Hz
+  com_height: 0.45  # com height
+  max_step_length: 0.3
+  double_support_time: 0.2 # [s] double support at the start of each step (after the touchdown, before the trailing foot lifts off); 0 = instant switch
+  hip_width: 0.27 #
+  step_height: 0.07 # [m] swing foot peak height above the ground (at mid-swing)
+  swing_landing_depth: 0.0 # [m] the swing trajectory ends this far below the foothold: the foot lands before the step end, moving down (an impact the contact estimator detects)
+  # late touchdown (use_time_base false): no contact at the end of the step -> the swing foot keeps
+  # descending below the foothold until the touchdown
+  late_descent_speed: 0.2 # [m/s] descent speed below the foothold
+  late_descent_ramp_time: 0.05 # [s] the descent speed ramps up from 0 over this time (no velocity jump)
+  late_max_depth: 0.05 # [m] deepest swing target below the foothold
+  # CP feedback (tsid_examples doc/event_based_control.md, Stage 1-3)
+  cp_feedback_gain: 0.3 # measured-CP blend of the receding-horizon ZMP and of the touchdown re-seed (0 = open loop)
+  zmp_hold_time: 0.03 # [s] the ZMP is held for the last part of a phase (the solution diverges as the remaining time -> 0)
+  foothold_adaptation: true # the foothold follows the predicted end-of-step CP
+  foothold_max_width_change: 0.05 # [m] lateral range around the nominal foothold
+  foothold_max_rate: 0.5 # [m/s] largest foothold change per second (smooth swing target)
+  foothold_freeze_phase: 0.8 # the foothold no longer changes after this step phase
+  max_turn_per_step: 0.2 # [rad] largest heading change of a step (turning: max_yaw_rate of the controller yaml)
+
+contact_tasks: # List of 6D rigid contacts
+  - contact_frame: "left_ankle_pitch_link"
+    mu: 0.8 # friction coefficient for friction cone constraint
+    f_min: 0.0 # minimum normal contact force
+    f_max: 1000.0 # maximum normal contact force
+    kp: 5.0 # proportional gain for contact acceleration
+    kd: 4.5 # derivative gain for contact acceleration (default 2*sqrt(kp) if omitted)
+    weight: 1e-3 # force regularization weight (w_force_reg)
+    sole_z: -0.040 # sole z offset in ankle link frame
+
+  - contact_frame: "right_ankle_pitch_link"
+    mu: 0.8 # friction coefficient for friction cone constraint
+    f_min: 0.0 # minimum normal contact force
+    f_max: 1000.0 # maximum normal contact force
+    kp: 5.0 # proportional gain for contact acceleration
+    kd: 4.5 # derivative gain for contact acceleration (default 2*sqrt(kp) if omitted)
+    weight: 1e-3 # force regularization weight (w_force_reg)
+    sole_z: -0.040 # sole z offset in ankle link frame
+
+com_task:
+  mask: [1.0, 1.0, 1.0] # selected axes to control: [x, y, z] (1=active, 0=unconstrained)
+  kp: 100.0 # proportional gain
+  weight: 0.5 # task weight in the QP cost function
+  priority: 1 # priority level (1 = soft motion task)
+
+base_orientation_task: # keep the base link upright
+  frame: "link0_torso" # base link frame
+  mask: [0, 0, 0, 1, 1, 1] # [x, y, z, roll, pitch, yaw] in the world frame; default: orientation only
+  kp: 10.0 # proportional gain (kd defaults to 2*sqrt(kp))
+  weight: 1.0 # task weight in the QP cost function
+  priority: 1 # priority level (1 = soft motion task)
+
+swing_foot_task: # tracks the swing foot (contact frame) while it is in the air
+  kp: 50.0 # proportional gain (kd defaults to 2*sqrt(kp))
+  weight: 10.0 # task weight in the QP cost function
+  priority: 1 # priority level (1 = soft motion task)
+  contact_transition_time: 0.15 # [s] the lifting foot's contact force is ramped to zero over this time before removal
+
+actuation_bounds_task: # joint torque limit 
+#−τ_max ≤ τ ≤ τ_max      with   τ = S (M·v̇ + h − J_cᵀ f)
+  weight: 1.0
+  priority: 0 # priority 0 = hard constraint in TSID
+  # optional: overrides the URDF <limit effort> (v2 URDF has placeholder 1000), Pinocchio joint order
+  tau_max: [48, 48, 16, 48, 18, 18,   # left:  hip pitch, hip roll, hip yaw, knee, ankle roll, ankle pitch
+            48, 48, 16, 48, 18, 18]   # right
+
+posture_task: # joint space control task
+  kp: 10.0 # proportional gain (kd defaults to 2*sqrt(kp))
+  weight: 0.001 # task weight in the QP cost function
+  priority: 1
+  joint_gain: # per-joint kp / kd, override the kp above (same as tsid_examples/config/tsid_config.yaml)
+    left_hip_pitch_joint:    {kp: 100.0, kd: 6.0}
+    left_hip_roll_joint:     {kp: 120.0, kd: 7.0}
+    left_hip_yaw_joint:      {kp: 60.0,  kd: 4.0}
+    left_knee_pitch_joint:   {kp: 120.0, kd: 7.0}
+    left_ankle_roll_joint:   {kp: 30.0,  kd: 1.6}
+    left_ankle_pitch_joint:  {kp: 30.0,  kd: 0.6}
+    right_hip_pitch_joint:   {kp: 100.0, kd: 6.0}
+    right_hip_roll_joint:    {kp: 120.0, kd: 7.0}
+    right_hip_yaw_joint:     {kp: 60.0,  kd: 4.0}
+    right_knee_pitch_joint:  {kp: 120.0, kd: 7.0}
+    right_ankle_roll_joint:  {kp: 30.0,  kd: 1.6}
+    right_ankle_pitch_joint: {kp: 30.0,  kd: 0.6}

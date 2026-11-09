@@ -13,7 +13,7 @@ existing log), then summarises how every step ended and how stable the walk was:
 
 Usage:
   python3 scripts/eval_walking.py --run --time 60 --name baseline
-  python3 scripts/eval_walking.py --csv record/biped_standing_joint_control.csv --log run.log
+  python3 scripts/eval_walking.py --csv record/biped_walking.csv --log run.log
 """
 
 import argparse
@@ -27,7 +27,7 @@ import pandas as pd
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEMO = os.path.join(REPO_ROOT, "build", "biped_walking")
-DEMO_CSV = os.path.join(REPO_ROOT, "record", "biped_standing_joint_control.csv")
+DEMO_CSV = os.path.join(REPO_ROOT, "record", "biped_walking.csv")
 
 
 def parse_args():

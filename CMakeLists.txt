@@ -64,6 +64,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(urdfdom_pc REQUIRED IMPORTED_TARGET urdfdom)
 find_package(Boost REQUIRED COMPONENTS filesystem system)
 find_package(yaml-cpp QUIET)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc videoio)
 pkg_check_modules(tinyxml2 REQUIRED IMPORTED_TARGET tinyxml2)
 if(TARGET PkgConfig::tinyxml2 AND NOT TARGET tinyxml2::tinyxml2)
   add_library(tinyxml2::tinyxml2 ALIAS PkgConfig::tinyxml2)
@@ -94,6 +95,7 @@ target_include_directories(core PUBLIC
 )
 # PROJECT_ROOT_DIR: absolute repo path, so the demos find models/, config/ and
 # record/ whatever directory they are started from
+target_include_directories(core PRIVATE ${OpenCV_INCLUDE_DIRS})
 target_compile_definitions(core PUBLIC
   COAL_DISABLE_HPP_FCL_WARNINGS
   PROJECT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
@@ -105,6 +107,9 @@ target_link_libraries(core PUBLIC
   mujoco::mujoco
   glfw
   Eigen3::Eigen
+  opencv_core
+  opencv_imgproc
+  opencv_videoio
   Boost::filesystem
   Boost::system
   OpenGL::GL
@@ -133,9 +138,6 @@ add_library(sim_interface ALIAS core)
 
 add_executable(biped_robot_leg demos/biped_robot_leg.cpp)
 target_link_libraries(biped_robot_leg PRIVATE core)
-
-add_executable(biped_standing demos/biped_standing.cpp)
-target_link_libraries(biped_standing PRIVATE core)
 
 add_executable(biped_walking demos/biped_walking.cpp)
 target_link_libraries(biped_walking PRIVATE core)

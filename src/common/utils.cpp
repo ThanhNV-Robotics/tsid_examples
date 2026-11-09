@@ -241,11 +241,11 @@ void quinticTrajectory(const Eigen::VectorXd &x_start,
                        const Eigen::VectorXd &x_end, double t, double T,
                        Eigen::VectorXd &x, Eigen::VectorXd &dx,
                        Eigen::VectorXd &ddx) {
-  const Eigen::VectorXd delta = x_end - x_start;
+  // no temporaries: with x, dx, ddx already sized, nothing is allocated (real-time loop)
   if (T <= 0.0 || t >= T) {
     x = x_end;
-    dx = Eigen::VectorXd::Zero(x_end.size());
-    ddx = Eigen::VectorXd::Zero(x_end.size());
+    dx.setZero(x_end.size());
+    ddx.setZero(x_end.size());
     return;
   }
 
@@ -254,9 +254,9 @@ void quinticTrajectory(const Eigen::VectorXd &x_start,
   const double ds = (30.0 * std::pow(tau, 2) - 60.0 * std::pow(tau, 3) + 30.0 * std::pow(tau, 4)) / T;
   const double dds = (60.0 * tau - 180.0 * std::pow(tau, 2) + 120.0 * std::pow(tau, 3)) / (T * T);
 
-  x = x_start + s * delta;
-  dx = ds * delta;
-  ddx = dds * delta;
+  x = x_start + s * (x_end - x_start);
+  dx = ds * (x_end - x_start);
+  ddx = dds * (x_end - x_start);
 }
 
 } // namespace utils

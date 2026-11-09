@@ -1,0 +1,59 @@
+<mujoco model="scene">
+<include file="v2_biped_robot_floatingbase_12dof.xml"/>
+
+<statistic center="0 0 0.4" extent="0.8"/>
+
+<visual>
+  <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+  <rgba haze="0.15 0.25 0.35 1"/>
+  <global azimuth="150" elevation="-20"/>
+</visual>
+
+<asset>
+  <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+  <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3"
+           markrgb="0.8 0.8 0.8" width="300" height="300"/>
+  <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+  <texture name="block" type="2d" file="block.png"/>
+  <material name="block" texture="block" reflectance="0"  />
+</asset>
+
+<worldbody>
+  <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
+  <geom name="floor" size="0 0 1" pos="0 0 0" type="plane" material="groundplane"/>
+  <!-- Contact estimation test: 1.5 cm step-up on the walking path, front edge
+       at x = 0.25 m (ahead of the initial toes at x ~ 0.15 m), 1 m long, under
+       both feet. The terrain-blind swing lands early on it (toe first). -->
+  <!-- near-rigid contact with the foot soles (MuJoCo contacts are always soft): solref time
+       constant 0.002 s (the stiffest stable value, 2 x timestep 0.001 s), critical damping;
+       solimp ~1 (impedance 0.99 -> 0.999 over 1 mm of penetration). priority 1: these values
+       (and the friction, as the sole) set the box's contacts instead of being averaged with the
+       sole's soft defaults -->
+  <geom name="step_box" type="box" size="0.25 0.4 0.015" pos="0.52 0 0.0075" rgba="0.75 0.55 0.3 1"
+        priority="1" solref="0.002 1" solimp="0.99 0.999 0.001" friction="1.0 0.05 0.001"/>
+  <!-- Slope test: 5 deg ramp rising along +x, same front edge as step_box (x0 = 0.85 m), same
+       contact parameters. Top face is 1 m long and starts exactly at floor level, so there is no
+       lip at the bottom; the high end is 8.7 cm up and drops straight back to the floor.
+       For slope t, top half-length a, half-thickness h (size="a 0.4 h", euler="0 -t 0"):
+         pos = (x0 + a cos t + h sin t, 0, a sin t - h cos t) -->
+  <!-- <geom name="slope_box" type="box" size="0.5 0.4 0.05" pos="0.9 0 -0.00623" euler="0 -5 0" rgba="0.55 0.65 0.35 1"
+        priority="1" solref="0.002 1" solimp="0.99 0.999 0.001" friction="1.0 0.05 0.001"/> -->
+  <!--geom type="box" size=".3 .6 .025" pos="0 0 .025" material="block" euler = "0 0 0.5" solref="0.002 0.2" friction="1 0.3 0.3"/>
+  <geom type="box" size=".3 .6 .025" pos="3 0 .025" material="block" euler = "0 0 -0.3" solref="0.002 0.2" friction="1 0.3 0.3"/>
+  <geom type="box" size=".3 .6 .025" pos="5 0 .025" material="block" euler = "0 0 0.2" solref="0.002 0.2" friction="1 0.3 0.3"/-->
+</worldbody>
+
+<!-- home: slight crouch, feet flat on the floor (torso height computed so the foot boxes just
+     touch it). Joint PD alone keeps it standing with the sim gains (checked 5 s, < 0.02 rad tilt).
+     Same joint values as HOME in biped_bringup/launch/sim_floating.launch.py.
+     qpos = free joint (x y z qw qx qy qz) + 12 joints in MJCF order
+            (hip pitch, hip roll, hip yaw, knee, ankle roll, ankle pitch; left, then right) -->
+<!-- <keyframe>
+  <key name="home" qpos="0 0 0.848 1 0 0 0  -0.2 0 0 0.4 0 -0.2  -0.2 0 0 0.4 0 -0.2"/>
+</keyframe> -->
+
+<keyframe>
+  <key name="home" qpos="0 0 0.862 1 0 0 0  0.0 0 0 0.0 0 0.0  0.0 0 0 0.0 0 0.0"/>
+</keyframe>
+
+</mujoco>

@@ -1,11 +1,11 @@
 #pragma once
 
-#include "common/data_type.h"
-
 #include <string>
 #include <vector>
 #include <pinocchio/multibody/model.hpp>    // pinocchio::Model
 #include <pinocchio/multibody/data.hpp>     // pinocchio::Data
+
+#include "common/data_type.h"
 #include "estimation/kalman_filter.h"
 
 // Discrete-time generalized-momentum disturbance observer (Bledt et al.,
@@ -21,6 +21,11 @@ class ContactFusion
         // dt: sampling time [s], lamda: observer cutoff frequency [Hz]
         ContactFusion (const pinocchio::Model &model, const std::vector<std::string> &foot_frames,
                        double dt, double lamda);
+        // Restart for a robot standing on all feet (as after construction): contact probability
+        // 1, observer and ground estimate re-seeded at the next computeDisturbanceTorque() /
+        // fuseContactProbability(). Sole corners are kept.
+        void reset ();
+
         // q (nq), v (nv): Pinocchio state of this tick, from robotStateToPinocchio()
         // tau: applied joint torques (na), e.g. RobotSensor::actuator_state.torquej
         // Also updates the foot wrenches, see getFootWrench()
@@ -41,7 +46,7 @@ class ContactFusion
         double calculate_height_contact_probability(double pz);
 
         // Sole corners of foot i in its foot frame (3 x k), e.g. the TSID contact
-        // points (tsidTaskParser::ContactInfo::contact_points). Without them the
+        // points (e.g. utils::soleCornersFromUrdf). Without them the
         // foot frame origin is used as the only sole point.
         void setSoleCorners (size_t i, const Eigen::Matrix3Xd &corners) { sole_corners_[i] = corners; }
         // Latest sole height of foot i: world z of its lowest sole corner [m].
@@ -116,6 +121,16 @@ class ContactFusion
         double beta_ = 0.0;  // (1 - gamma) / (gamma dt), set in the constructor
         VectorXd y_; // Low-pass filter state
         VectorXd tau_d_; // estimated disturbance torque
+        // work buffers of computeDisturbanceTorque (nv), sized in the constructor
+        VectorXd p_;  // generalized momentum M v
+        VectorXd St_; // S^T tau: joint torques, 0 on the 6 base DoF
+        VectorXd x_;  // observer input beta p + S^T tau + C^T v - g
+
+        // Leg matrices of the foot wrench solve: n leg joints (at most 6) x 6, fixed maximum size,
+        // so they and their SVD never allocate heap memory
+        static constexpr int kMaxLegDofs = 6;
+        using LegMatrix = Eigen::Matrix<double, Eigen::Dynamic, 6, 0, kMaxLegDofs, 6>;
+        using LegVector = Eigen::Matrix<double, Eigen::Dynamic, 1, 0, kMaxLegDofs, 1>;
 
         std::vector<pinocchio::FrameIndex> foot_ids_;
         std::vector<std::vector<int>> leg_dofs_; // velocity indices of the joints between base and foot

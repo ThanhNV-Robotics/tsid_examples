@@ -125,7 +125,7 @@
                                                     <geom name="l_contact" class="contact" />
 
                                                     <!-- This site is for touch sensor -->
-                                                    <site name="lf-tc" type="box" size="0.09 0.03 0.006"  pos="0.04 0 -0.034"  rgba="1 0 0 1" />
+                                                    <site name="lf-tc" type="box" size="0.09 0.03 0.006"  pos="0.04 0 -0.034"  rgba="1 0 0 0.1" />
                                                 
                                                 </body>
                                          </body>
@@ -170,7 +170,7 @@
                                             <!-- This geom is for collision -->
                                             <geom name="r_contact" class="contact" />
                                             <!-- This site is for touch sensor -->
-                                            <site name="rf-tc" type="box" size="0.09 0.03 0.006"  pos="0.04 0 -0.034"  rgba="1 0 0 1" />
+                                            <site name="rf-tc" type="box" size="0.09 0.03 0.006"  pos="0.04 0 -0.034"  rgba="1 0 0 0.1" />
                                         </body>
                                     </body>
                                 </body>
